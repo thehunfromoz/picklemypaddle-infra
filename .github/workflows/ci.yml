@@ -68,6 +68,16 @@ jobs:
           grep -qi '^x-frame-options: DENY' <<<"$headers"
           if grep -qi '^server:' <<<"$headers"; then echo "Server header leaked"; exit 1; fi
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
+      - name: That build's own smoke tests pass against the stack (SCRUM-17)
+        run: |
+          rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/thehunfromoz/picklemypaddle-site:staging)
+          smoke=ghcr.io/thehunfromoz/picklemypaddle-site-smoke:$rev
+          if ! docker pull -q "$smoke"; then
+            echo "::notice::No smoke-test image for site commit ${rev:0:7} yet (published from SCRUM-17 onwards); skipped."
+            exit 0
+          fi
+          docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
+            -e BASE_URL=http://127.0.0.1:8088 "$smoke"
       - name: Logs on failure
         if: failure()
         run: |
