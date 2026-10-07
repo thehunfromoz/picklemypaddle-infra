@@ -36,6 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tests/staging-update.test.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; for c in $(docker ps -aq); do echo "--- $(docker inspect -f '{{.Name}}' $c)"; docker logs --tail 15 $c 2>&1; done)"
+          echo "::error title=containers::${out//$'\n'/%0A}"
 
   site-image:
     name: Real site image runs behind the gateway
@@ -65,4 +70,6 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
       - name: Logs on failure
         if: failure()
-        run: docker compose -f staging/compose.staging.yml --project-directory staging logs
+        run: |
+          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; docker compose -f staging/compose.staging.yml --project-directory staging logs --tail 15 2>&1)"
+          echo "::error title=containers::${out//$'\n'/%0A}"

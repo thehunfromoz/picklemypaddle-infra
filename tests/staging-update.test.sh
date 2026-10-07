@@ -21,7 +21,12 @@ export STACK_DIR="$WORK/stack" STATE_DIR="$WORK/state" HEALTH_TIMEOUT=60
 pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; }
 die() {
   printf '\033[31mFAIL\033[0m %s\n' "$*" >&2
-  docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" ps -a >&2 || true
+  local out
+  out="$(docker ps -a --format '{{.Names}} {{.Status}}'
+    docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" logs --tail 15 2>&1)"
+  echo "$out" >&2
+  # Also as a GitHub annotation, so the failure is readable from the API.
+  [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=$1::${out//$'\n'/%0A}"
   exit 1
 }
 cleanup() {
@@ -30,6 +35,7 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+trap 'die "unexpected failure at line $LINENO"' ERR
 
 publish() { # publish <version> <health-status>
   docker build -q -t "$IMG:staging" --build-arg VERSION="$1" --build-arg HEALTH="$2" "$ROOT/tests/fixtures" >/dev/null
