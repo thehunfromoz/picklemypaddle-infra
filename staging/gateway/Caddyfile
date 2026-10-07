@@ -1,0 +1,27 @@
+# Staging gateway: one entry point on the LAN that routes to each component.
+# Security headers come from each component's own Caddy; the gateway passes
+# them through untouched and only hides its own Server header.
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	# Gateway's own liveness (used by Docker); /healthz is passed to the site.
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	# Later components get their own path here, e.g.
+	#   handle /api/* { reverse_proxy integrations:8080 }
+
+	handle {
+		reverse_proxy site:80
+	}
+
+	header -Server
+	log {
+		output stdout
+		format console
+	}
+}
