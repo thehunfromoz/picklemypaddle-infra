@@ -8,7 +8,9 @@
 
 :80 {
 	# Gateway's own liveness (used by Docker); /healthz is passed to the site.
-	respond /gateway-healthz "ok" 200
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
 
 	# Later components get their own path here, e.g.
 	#   handle /api/* { reverse_proxy integrations:8080 }

@@ -84,7 +84,8 @@ else
   fail "first update failed; see the log above"
 fi
 
-# Pick up a reloaded gateway config on re-install.
+# Refresh the gateway image and pick up any gateway config change.
+docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" pull -q gateway || true
 docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
   up -d --pull never --force-recreate --no-deps gateway >/dev/null 2>&1 || true
 sleep 2

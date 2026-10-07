@@ -89,9 +89,11 @@ sudo rm /var/lib/pmp-staging/site.known-bad
 sudo systemctl start pmp-staging-update.service
 ```
 
-### Apply changes from this repo
+### Apply changes from this repo (and refresh the gateway)
 
-Changes to the compose file, gateway or updater are never picked up automatically:
+Changes to the compose file, gateway or updater are never picked up automatically. Re-running
+the installer also pulls the latest Caddy image for the gateway, so do it every month or so
+even without changes:
 
 ```bash
 cd ~/picklemypaddle-infra && git pull

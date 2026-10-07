@@ -140,8 +140,10 @@ main() {
   done
 
   # Start anything that isn't running yet (first install, after a crash, the
-  # gateway). Never pulls: images come only from the update step above.
-  compose up -d --pull never --no-recreate >/dev/null 2>&1 || {
+  # gateway). Only pulls images that are missing locally; the gateway's Caddy
+  # image is refreshed by re-running install.sh, not every 2 minutes (Docker
+  # Hub rate-limits anonymous pulls).
+  compose up -d --pull missing --no-recreate >/dev/null 2>&1 || {
     log "stack: some containers did not start; see 'docker compose ps'"
     status=1
   }
