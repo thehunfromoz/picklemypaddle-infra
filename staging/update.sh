@@ -143,8 +143,8 @@ main() {
   # gateway). Only pulls images that are missing locally; the gateway's Caddy
   # image is refreshed by re-running install.sh, not every 2 minutes (Docker
   # Hub rate-limits anonymous pulls).
-  compose up -d --pull missing --no-recreate >/dev/null 2>&1 || {
-    log "stack: some containers did not start; see 'docker compose ps'"
+  compose up -d --pull missing --no-recreate --wait --wait-timeout "$HEALTH_TIMEOUT" >/dev/null 2>&1 || {
+    log "stack: some containers did not start or are unhealthy; see 'docker compose ps'"
     status=1
   }
   exit "$status"
