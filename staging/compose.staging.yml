@@ -1,0 +1,56 @@
+# Pickle My Paddle — staging stack on home-server (SCRUM-16).
+#
+#   Mac / LAN ──► http://home-server:${STAGING_PORT}  ──► gateway (Caddy) ──► site
+#                                                                    └──► (later) integrations, agents dashboard
+#
+# Only the gateway publishes a port. Components sit on a private Docker network,
+# so nothing else on home-server (or its other containers) can collide with them.
+# Images are pulled from GHCR by update.sh; nothing here builds or runs repo code.
+name: pmp-staging
+
+services:
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${STAGING_BIND:-0.0.0.0}:${STAGING_PORT:-8088}:80"
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      site:
+        condition: service_healthy
+    networks: [staging]
+    read_only: true
+    tmpfs: [/data, /config]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/gateway-healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  site:
+    image: ${SITE_IMAGE:-ghcr.io/thehunfromoz/picklemypaddle-site:staging}
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ":80"
+      HSTS: "max-age=0"
+      ORDER_API_ORIGIN: ""
+    networks: [staging]
+    read_only: true
+    tmpfs: [/data, /config]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  staging:
+    name: pmp-staging

@@ -1,0 +1,68 @@
+# Checks every pull request and push to main for the infra repo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint scripts and compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck staging/*.sh tests/*.sh
+      - name: Compose file is valid
+        run: cp staging/.env.example staging/.env && docker compose -f staging/compose.staging.yml --project-directory staging config -q
+      - name: systemd units are valid
+        run: |
+          sudo mkdir -p /opt/picklemypaddle/staging
+          sudo install -m 0755 staging/update.sh /opt/picklemypaddle/staging/update.sh
+          systemd-analyze verify staging/systemd/pmp-staging-update.service staging/systemd/pmp-staging-update.timer
+
+  updater:
+    name: Updater deploys, rolls back and recovers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/staging-update.test.sh
+
+  site-image:
+    name: Real site image runs behind the gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull :staging anonymously (as home-server will)
+        run: |
+          if ! docker pull ghcr.io/thehunfromoz/picklemypaddle-site:staging; then
+            echo "::error::Can't pull the site image without logging in. Make the GHCR package public (see runbooks/staging-home-server.md, step 1)."
+            exit 1
+          fi
+      - name: Start the staging stack
+        run: |
+          cp staging/.env.example staging/.env
+          sed -i 's/^STAGING_BIND=.*/STAGING_BIND=127.0.0.1/' staging/.env
+          docker compose -f staging/compose.staging.yml --project-directory staging up -d --wait --wait-timeout 120
+      - name: Site answers through the gateway with its security headers
+        run: |
+          curl -fsS http://127.0.0.1:8088/healthz
+          curl -fsS http://127.0.0.1:8088/ | grep -q 'Pickle My Paddle'
+          headers="$(curl -fsSI http://127.0.0.1:8088/)"
+          echo "$headers"
+          grep -qi "^content-security-policy: default-src 'self'" <<<"$headers"
+          grep -qi '^x-frame-options: DENY' <<<"$headers"
+          if grep -qi '^server:' <<<"$headers"; then echo "Server header leaked"; exit 1; fi
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f staging/compose.staging.yml --project-directory staging logs
