@@ -24,7 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: actionlint (also shellchecks run blocks)
-        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest \
+            -format '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}}%0A{{end}}'
 
   lint:
     name: Lint scripts and compose file
