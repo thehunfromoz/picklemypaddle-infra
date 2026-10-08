@@ -71,7 +71,7 @@ API_PID=$!
 # Stand-in integrations service (labelled for auto-update like the site) and its
 # empty secrets file.
 : >"$WORK/integrations.env"
-docker build -q -t "$REG/pmp-test/integrations:staging" --build-arg VERSION=INT --build-arg HEALTH=200 \
+docker build -q -t "$REG/pmp-test/integrations:staging" --build-arg VERSION=INT --build-arg HEALTH=200 --build-arg LISTEN=8080 --build-arg STATE_PREFIX=/tmp/ \
   --label org.opencontainers.image.revision=rev-INT --label org.opencontainers.image.source=https://github.com/test/integrations \
   "$ROOT/tests/fixtures" >/dev/null
 docker push -q "$REG/pmp-test/integrations:staging" >/dev/null
