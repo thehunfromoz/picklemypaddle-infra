@@ -58,7 +58,7 @@ jobs:
       - name: Diagnostics on failure
         if: failure()
         run: |
-          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; for c in $(docker ps -aq); do echo "--- $(docker inspect -f '{{.Name}}' $c)"; docker logs --tail 15 $c 2>&1; done)"
+          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; for c in $(docker ps -aq); do echo "--- $(docker inspect -f '{{.Name}}' "$c")"; docker logs --tail 15 "$c" 2>&1; done)"
           echo "::error title=containers::${out//$'\n'/%0A}"
 
   site-image:
