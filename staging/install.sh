@@ -15,6 +15,8 @@ DEST_DIR="/opt/picklemypaddle/staging"
 UNIT_DIR="/etc/systemd/system"
 TOKEN_FILE="/etc/picklemypaddle/github-status.token"
 STATUS_REPO="thehunfromoz/picklemypaddle-site"
+SECRETS_FILE="/etc/picklemypaddle/integrations.env"
+IMAGES=(ghcr.io/thehunfromoz/picklemypaddle-site:staging ghcr.io/thehunfromoz/picklemypaddle-integrations:staging)
 CHECK_ONLY=false
 SET_TOKEN=false
 case "${1:-}" in
@@ -82,10 +84,20 @@ else
   ok "port $PORT is free"
 fi
 
-if docker pull -q ghcr.io/thehunfromoz/picklemypaddle-site:staging >/dev/null 2>&1; then
-  ok "can pull the site image from GHCR"
+for img in "${IMAGES[@]}"; do
+  if docker pull -q "$img" >/dev/null 2>&1; then
+    ok "can pull ${img#ghcr.io/thehunfromoz/}"
+  else
+    fail "cannot pull $img (no internet, or the package isn't public yet; see the runbook)"
+  fi
+done
+
+if [[ -f "$SECRETS_FILE" ]]; then
+  perms="$(stat -c '%a %U' "$SECRETS_FILE")"
+  if [[ "$perms" == "600 root" ]]; then ok "integrations secrets file is root-only"; else
+    fail "$SECRETS_FILE must be owned by root with mode 600 (is: $perms); fix: sudo chmod 600 $SECRETS_FILE && sudo chown root:root $SECRETS_FILE"; fi
 else
-  fail "cannot pull ghcr.io/thehunfromoz/picklemypaddle-site:staging (no internet, or the package isn't public yet; see the runbook)"
+  printf '  \033[33m!\033[0m %s will be created (empty; add TEST-mode keys later, see runbook)\n' "$SECRETS_FILE"
 fi
 
 if [[ -r "$TOKEN_FILE" ]]; then
@@ -113,6 +125,25 @@ $CHECK_ONLY && { info "Checks passed. Nothing installed (--check)."; exit 0; }
 
 info "Installing to $DEST_DIR"
 install -d -m 0755 "$DEST_DIR" "$DEST_DIR/gateway"
+install -d -m 0700 "$(dirname "$SECRETS_FILE")"
+if [[ ! -f "$SECRETS_FILE" ]]; then
+  ( umask 077; cat >"$SECRETS_FILE" <<'SECRETS'
+# Pickle My Paddle integrations service: STAGING secrets. Root-only (chmod 600).
+# TEST-MODE values only: the service refuses a live Stripe key on staging.
+# Leave a value empty until its integration is built. After editing, apply with:
+#   cd ~/picklemypaddle-infra && sudo ./staging/install.sh
+# APP_ENV, PORT and PUBLIC_SITE_ORIGIN are set in compose.staging.yml, not here.
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+HUBSPOT_ACCESS_TOKEN=
+HUBSPOT_PORTAL_ID=
+SECRETS
+  )
+  ok "created $SECRETS_FILE (root-only, empty)"
+else
+  chmod 600 "$SECRETS_FILE"; chown root:root "$SECRETS_FILE"
+  ok "kept $SECRETS_FILE (root-only)"
+fi
 install -m 0644 "$SRC_DIR/compose.staging.yml" "$DEST_DIR/compose.staging.yml"
 install -m 0644 "$SRC_DIR/gateway/Caddyfile" "$DEST_DIR/gateway/Caddyfile"
 install -m 0755 "$SRC_DIR/update.sh" "$DEST_DIR/update.sh"
@@ -139,6 +170,10 @@ else
   journalctl -u pmp-staging-update.service -n 30 --no-pager >&2
   fail "first update failed; see the log above"
 fi
+
+# Restart integrations if its settings (secrets file) changed; no-op otherwise.
+docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
+  up -d --pull never --no-deps integrations >/dev/null 2>&1 || true
 
 # Refresh the gateway image and pick up any gateway config change.
 docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" pull -q gateway || true

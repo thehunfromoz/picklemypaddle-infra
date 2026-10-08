@@ -1,11 +1,12 @@
 # Pickle My Paddle — staging stack on home-server (SCRUM-16).
 #
-#   Mac / LAN ──► http://home-server:${STAGING_PORT}  ──► gateway (Caddy) ──► site
-#                                                                    └──► (later) integrations, agents dashboard
+#   Mac / LAN ──► http://home-server:${STAGING_PORT}  ──► gateway (Caddy) ──► site            (everything else)
+#                                                                    └──► integrations    (/api/*)
 #
 # Only the gateway publishes a port. Components sit on a private Docker network,
 # so nothing else on home-server (or its other containers) can collide with them.
 # Images are pulled from GHCR by update.sh; nothing here builds or runs repo code.
+# update.sh keeps every service labelled com.picklemypaddle.autoupdate=true current.
 name: pmp-staging
 
 services:
@@ -34,6 +35,8 @@ services:
   site:
     image: ${SITE_IMAGE:-ghcr.io/thehunfromoz/picklemypaddle-site:staging}
     restart: unless-stopped
+    labels:
+      com.picklemypaddle.autoupdate: "true"
     environment:
       SITE_ADDRESS: ":80"
       HSTS: "max-age=0"
@@ -50,6 +53,27 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+
+  integrations:
+    image: ${INTEGRATIONS_IMAGE:-ghcr.io/thehunfromoz/picklemypaddle-integrations:staging}
+    restart: unless-stopped
+    labels:
+      com.picklemypaddle.autoupdate: "true"
+    # Non-secret settings are fixed here (and win over the secrets file), so staging
+    # always runs as staging. API keys come only from the root-only secrets file,
+    # which install.sh creates; the service refuses live Stripe keys on staging.
+    environment:
+      APP_ENV: staging
+      PORT: "8080"
+      PUBLIC_SITE_ORIGIN: ${STAGING_PUBLIC_URL:-http://home-server:8088}
+    env_file:
+      - path: ${INTEGRATIONS_ENV_FILE:-/etc/picklemypaddle/integrations.env}
+        required: true
+    networks: [staging]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 networks:
   staging:

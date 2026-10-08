@@ -27,7 +27,6 @@ if [[ -f "$STACK_DIR/.env" ]]; then
   set +a
 fi
 STATE_DIR="${STATE_DIR:-/var/lib/pmp-staging}"
-UPDATE_SERVICES="${UPDATE_SERVICES:-site}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"
 SMOKE_SERVICES="${SMOKE_SERVICES:-site}"
 SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-600}"
@@ -48,6 +47,18 @@ short() { local id="${1#sha256:}"; printf '%s' "${id:0:12}"; }
 image_of() {
   compose config --format json |
     python3 -c 'import json,sys; print(json.load(sys.stdin)["services"][sys.argv[1]]["image"])' "$1"
+}
+
+# Services to keep current: those labelled com.picklemypaddle.autoupdate=true.
+autoupdate_services() {
+  compose config --format json | python3 -c '
+import json, sys
+for name, svc in json.load(sys.stdin)["services"].items():
+    labels = svc.get("labels") or {}
+    if isinstance(labels, list):
+        labels = dict(l.split("=", 1) for l in labels)
+    if str(labels.get("com.picklemypaddle.autoupdate", "")).lower() == "true":
+        print(name)'
 }
 
 container_of() { compose ps -q "$1" 2>/dev/null | head -n1; }
@@ -222,7 +233,7 @@ main() {
   fi
 
   local status=0 svc
-  for svc in $UPDATE_SERVICES; do
+  for svc in $(autoupdate_services); do
     update_service "$svc" || status=1
   done
 

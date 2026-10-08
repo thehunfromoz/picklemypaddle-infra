@@ -12,8 +12,10 @@
 		respond "ok" 200
 	}
 
-	# Later components get their own path here, e.g.
-	#   handle /api/* { reverse_proxy integrations:8080 }
+	# The integrations service (orders, CRM, payments). If it is down, only /api fails.
+	handle /api/* {
+		reverse_proxy integrations:8080
+	}
 
 	handle {
 		reverse_proxy site:80

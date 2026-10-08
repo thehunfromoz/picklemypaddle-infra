@@ -23,7 +23,13 @@ jobs:
       - name: shellcheck
         run: shellcheck staging/*.sh tests/*.sh
       - name: Compose file is valid
-        run: cp staging/.env.example staging/.env && docker compose -f staging/compose.staging.yml --project-directory staging config -q
+        run: |
+          cp staging/.env.example staging/.env
+          touch /tmp/integrations.env
+          sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          docker compose -f staging/compose.staging.yml --project-directory staging config -q
+          # Updater targets: exactly the labelled services
+          test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "integrations site"
       - name: systemd units are valid
         run: |
           sudo mkdir -p /opt/picklemypaddle/staging
@@ -47,8 +53,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Pull :staging anonymously (as home-server will)
+      - name: Pull :staging images anonymously (as home-server will)
         run: |
+          docker pull ghcr.io/thehunfromoz/picklemypaddle-integrations:staging || {
+            echo "::error::Can't pull the integrations image without logging in. Merge picklemypaddle-integrations #1 first, and make sure the GHCR package is public."; exit 1; }
           if ! docker pull ghcr.io/thehunfromoz/picklemypaddle-site:staging; then
             echo "::error::Can't pull the site image without logging in. Make the GHCR package public (see runbooks/staging-home-server.md, step 1)."
             exit 1
@@ -57,6 +65,8 @@ jobs:
         run: |
           cp staging/.env.example staging/.env
           sed -i 's/^STAGING_BIND=.*/STAGING_BIND=127.0.0.1/' staging/.env
+          touch /tmp/integrations.env
+          sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
           docker compose -f staging/compose.staging.yml --project-directory staging up -d --wait --wait-timeout 120
       - name: Site answers through the gateway with its security headers
         run: |
@@ -68,6 +78,11 @@ jobs:
           grep -qi '^x-frame-options: DENY' <<<"$headers"
           if grep -qi '^server:' <<<"$headers"; then echo "Server header leaked"; exit 1; fi
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
+      - name: Integrations answers on /api through the gateway, as staging
+        run: |
+          out="$(curl -fsS http://127.0.0.1:8088/api/status)"
+          echo "$out"
+          grep -q '"env":"staging"' <<<"$out"
       - name: That build's own smoke tests pass against the stack (SCRUM-17)
         run: |
           rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/thehunfromoz/picklemypaddle-site:staging)
