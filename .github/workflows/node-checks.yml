@@ -1,0 +1,63 @@
+# Reusable: install a pnpm/Node 22 project and run its checks (SCRUM-13/14).
+#   jobs:
+#     checks:
+#       uses: thehunfromoz/picklemypaddle-infra/.github/workflows/node-checks.yml@main
+#       with:
+#         scripts: lint check test:unit test:e2e   # pnpm scripts, run in order
+#         playwright: true                         # install Chromium first
+# Each failing script is summarised as an annotation on the PR.
+name: Node checks
+
+on:
+  workflow_call:
+    inputs:
+      scripts:
+        description: pnpm scripts to run, in order (space separated)
+        type: string
+        required: true
+      playwright:
+        description: Install Playwright's Chromium before running the scripts
+        type: boolean
+        default: false
+      report-path:
+        description: Folder to upload as an artifact if anything fails (e.g. playwright-report)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - if: inputs.playwright
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run ${{ inputs.scripts }}
+        env:
+          SCRIPTS: ${{ inputs.scripts }}
+        run: |
+          for s in $SCRIPTS; do
+            echo "::group::pnpm $s"
+            if ! pnpm run "$s" 2>&1 | tee "/tmp/$s.log"; then
+              echo "::endgroup::"
+              out="$(tail -n 40 "/tmp/$s.log")"
+              echo "::error title=pnpm $s failed::${out//$'\n'/%0A}"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+      - if: failure() && inputs.report-path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: ${{ inputs.report-path }}
+          retention-days: 7

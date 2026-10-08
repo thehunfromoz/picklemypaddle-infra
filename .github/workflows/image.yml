@@ -1,0 +1,153 @@
+# Reusable: build, test, scan and publish a component's Docker image (SCRUM-15).
+#
+#   jobs:
+#     image:
+#       needs: [checks, secrets]
+#       uses: thehunfromoz/picklemypaddle-infra/.github/workflows/image.yml@main
+#       permissions: { contents: read, packages: write }
+#       with:
+#         build-args: |
+#           SITE_URL=http://home-server:8088
+#         container-test: ci/container-test.sh      # optional, from the calling repo
+#         setup-node: true                          # install pnpm deps first (for the test script)
+#         extra-images: |                           # optional: local-tag=ghcr-name, pushed as :<sha>
+#           picklemypaddle-site-smoke:test=ghcr.io/thehunfromoz/picklemypaddle-site-smoke
+#
+# Every PR: build -> the repo's container tests -> Trivy (HIGH/CRITICAL fail).
+# Merge to main: also publish ghcr.io/<owner>/<repo>:staging and :<sha> (extra images
+# first, so they exist before home-server sees the new :staging), then prune old
+# SHA tags (keeps the newest `keep-sha-tags`; never touches :staging or version tags).
+# Labels: revision (commit), created (build time), source (from the Dockerfile).
+name: Image
+
+on:
+  workflow_call:
+    inputs:
+      build-args:
+        type: string
+        default: ''
+      container-test:
+        description: Script in the calling repo, run with IMAGE=<local tag> after the build
+        type: string
+        default: ''
+      setup-node:
+        description: Set up Node 22 + pnpm and install dependencies before the container test
+        type: boolean
+        default: false
+      extra-images:
+        description: Lines of local-tag=ghcr-repository to publish as :<sha> alongside the main image
+        type: string
+        default: ''
+      keep-sha-tags:
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Image
+    runs-on: ubuntu-latest
+    env:
+      LOCAL: ci-image:test
+      REMOTE: ghcr.io/${{ github.repository }}
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build-time labels
+        id: meta
+        run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.LOCAL }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            ${{ inputs.build-args }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+
+      - if: inputs.setup-node
+        uses: pnpm/action-setup@v4
+      - if: inputs.setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - if: inputs.setup-node
+        run: pnpm install --frozen-lockfile
+
+      - name: Container tests (${{ inputs.container-test }})
+        if: inputs.container-test != ''
+        env:
+          IMAGE: ${{ env.LOCAL }}
+          SCRIPT: ${{ inputs.container-test }}
+        run: |
+          if ! bash "$SCRIPT" 2>&1 | tee /tmp/container-test.log; then
+            out="$(tail -n 40 /tmp/container-test.log)"
+            echo "::error title=container tests failed::${out//$'\n'/%0A}"
+            exit 1
+          fi
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+          output: trivy.txt
+      - name: Report vulnerability findings
+        if: failure()
+        run: |
+          [ -f trivy.txt ] || exit 0
+          out="$(grep -E 'CRITICAL|HIGH|Total:' trivy.txt | head -40)"
+          echo "::error title=trivy::${out//$'\n'/%0A}"
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish (extra images first, then :staging and :sha)
+        if: env.PUBLISH == 'true'
+        env:
+          EXTRA: ${{ inputs.extra-images }}
+          SHA: ${{ github.sha }}
+        run: |
+          while IFS='=' read -r local remote; do
+            [ -n "$local" ] || continue
+            docker tag "$local" "$remote:$SHA" && docker push -q "$remote:$SHA"
+          done <<<"$EXTRA"
+          docker tag "$LOCAL" "$REMOTE:$SHA"; docker push -q "$REMOTE:$SHA"
+          docker tag "$LOCAL" "$REMOTE:staging"; docker push -q "$REMOTE:staging"
+
+      - name: Prune old SHA tags (keep newest ${{ inputs.keep-sha-tags }})
+        if: env.PUBLISH == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXTRA: ${{ inputs.extra-images }}
+          KEEP: ${{ inputs.keep-sha-tags }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          pkgs="${REMOTE##*/}"
+          while IFS='=' read -r _ remote; do [ -n "$remote" ] && pkgs="$pkgs ${remote##*/}"; done <<<"$EXTRA"
+          for pkg in $pkgs; do
+            # Versions whose tags are ONLY 40-hex commit SHAs (never :staging, vX.Y.Z or untagged),
+            # newest first; delete all but the newest $KEEP.
+            gh api --paginate "/users/$owner/packages/container/$pkg/versions" \
+              --jq '.[] | select((.metadata.container.tags|length) > 0 and all(.metadata.container.tags[]; test("^[0-9a-f]{40}$"))) | "\(.created_at) \(.id)"' \
+              | sort -r | tail -n +"$((KEEP + 1))" | while read -r _ id; do
+                echo "deleting $pkg version $id"
+                gh api -X DELETE "/users/$owner/packages/container/$pkg/versions/$id" || echo "::warning::could not delete $pkg $id"
+              done
+          done

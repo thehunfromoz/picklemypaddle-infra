@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets:
+    uses: ./.github/workflows/secret-scan.yml
+
+  workflows:
+    name: Lint GitHub workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint (also shellchecks run blocks)
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+
   lint:
     name: Lint scripts and compose file
     runs-on: ubuntu-latest
