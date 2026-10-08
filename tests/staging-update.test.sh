@@ -68,12 +68,22 @@ docker run -d --name pmp-test-registry -p 5000:5000 registry:2 >/dev/null
 echo "test-token" >"$GITHUB_STATUS_TOKEN_FILE"
 python3 "$ROOT/tests/fixtures/fake_github.py" "$STATUSES" &
 API_PID=$!
+# Stand-in integrations service (labelled for auto-update like the site) and its
+# empty secrets file.
+: >"$WORK/integrations.env"
+docker build -q -t "$REG/pmp-test/integrations:staging" --build-arg VERSION=INT --build-arg HEALTH=200 \
+  --label org.opencontainers.image.revision=rev-INT --label org.opencontainers.image.source=https://github.com/test/integrations \
+  "$ROOT/tests/fixtures" >/dev/null
+docker push -q "$REG/pmp-test/integrations:staging" >/dev/null
+docker rmi "$REG/pmp-test/integrations:staging" >/dev/null
 mkdir -p "$STACK_DIR/gateway"
 cp "$ROOT/staging/compose.staging.yml" "$ROOT/staging/update.sh" "$STACK_DIR/"
 cp "$ROOT/staging/gateway/Caddyfile" "$STACK_DIR/gateway/"
 sed -e "s|^STAGING_PORT=.*|STAGING_PORT=$PORT|" \
     -e "s|^STAGING_BIND=.*|STAGING_BIND=127.0.0.1|" \
     -e "s|^SITE_IMAGE=.*|SITE_IMAGE=$IMG:staging|" \
+    -e "s|^INTEGRATIONS_IMAGE=.*|INTEGRATIONS_IMAGE=$REG/pmp-test/integrations:staging|" \
+    -e "s|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=$WORK/integrations.env|" \
     -e "s|^HEALTH_TIMEOUT=.*|HEALTH_TIMEOUT=60|" \
     "$ROOT/staging/.env.example" >"$STACK_DIR/.env"
 sleep 2

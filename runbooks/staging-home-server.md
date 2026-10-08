@@ -11,6 +11,8 @@ home-server ── pmp-staging-update.timer ─► update.sh ─► docker compo
                                                              gateway :8088 ─► site
 ```
 
+- **Two services behind one address.** The gateway sends `/api/*` to the integrations service
+  (orders, CRM, payments) and everything else to the site. Both update themselves the same way.
 - **Pull, not push.** home-server checks GHCR every 2 minutes. GitHub never connects to
   your LAN, and home-server never runs code from the public repos, only images that
   passed CI.
@@ -58,7 +60,9 @@ home folder is only a source to review and install from.
    tokens** → **Fine-grained tokens** → **Generate new token**.
    - Name: `home-server staging status`
    - Expiration: 1 year (put a reminder in your calendar)
-   - Repository access: **Only select repositories** → `picklemypaddle-site`
+   - Repository access: **Only select repositories** → `picklemypaddle-site` and
+     `picklemypaddle-integrations` (to add a repo to an existing token: open the token → **Edit**
+     → Repository access → add it → **Update**; the token value stays the same)
    - Permissions → Repository permissions → **Commit statuses: Read and write**. Leave
      everything else at "No access". GitHub adds read-only Metadata automatically.
 2. Copy the token, then on home-server:
@@ -71,7 +75,30 @@ home folder is only a source to review and install from.
 Without a token everything still works. The results just don't show on GitHub. When the token
 expires, `install.sh --check` warns you; repeat these steps to replace it.
 
-### 4. Reach it from the Mac
+### 4. API keys for the integrations service (when Stripe/HubSpot are built)
+
+Staging keeps the integrations service's keys in **`/etc/picklemypaddle/integrations.env`**.
+`install.sh` creates it empty, owned by root with mode 600, and `--check` fails if anyone loosens
+those permissions. Nothing else on home-server, and nothing in any repo, holds these keys.
+
+- **Only test-mode values on staging.** Use a Stripe *test* secret key (`sk_test_…`) and webhook
+  secret, and the HubSpot *test* portal's private-app token. The service refuses to start with a
+  live Stripe key on staging. The error names the setting but never shows the key.
+- Edit it with `sudo nano /etc/picklemypaddle/integrations.env`, then apply with
+  `cd ~/picklemypaddle-infra && sudo ./staging/install.sh`.
+- `APP_ENV`, `PORT` and `PUBLIC_SITE_ORIGIN` are fixed in `compose.staging.yml`, so this file
+  can't switch staging to production settings.
+- To check what the service sees, without values: `curl -s http://localhost:8088/api/status`.
+- If the service won't start, `sudo docker compose -p pmp-staging logs --tail 20 integrations`
+  lists every missing or invalid setting by name.
+
+| Environment | Where its keys live |
+| --- | --- |
+| Your Mac (dev) | `.env` in each repo checkout (git-ignored), copied from `.env.example` |
+| Staging | `/etc/picklemypaddle/integrations.env` on home-server (root, 600) |
+| Production (later) | the same pattern on the OVH server, with live keys |
+
+### 5. Reach it from the Mac
 
 ```bash
 ping -c1 home-server
