@@ -95,6 +95,20 @@ else
   printf '  \033[33m!\033[0m no GitHub status token yet: staging works, but results won'"'"'t show on GitHub.\n    Add one with: sudo %s --set-token (see runbook)\n' "$0"
 fi
 
+# Is what's installed in /opt the same as this checkout? (The timer runs /opt.)
+stale=""
+for f in compose.staging.yml gateway/Caddyfile update.sh; do
+  cmp -s "$SRC_DIR/$f" "$DEST_DIR/$f" 2>/dev/null || stale="$stale $f"
+done
+for f in pmp-staging-update.service pmp-staging-update.timer; do
+  cmp -s "$SRC_DIR/systemd/$f" "$UNIT_DIR/$f" 2>/dev/null || stale="$stale $f"
+done
+if [[ -n "$stale" ]]; then
+  printf '  \033[33m!\033[0m installed files differ from this checkout:%s\n    Apply them with: sudo %s\n' "$stale" "$0"
+else
+  ok "installed files match this checkout"
+fi
+
 $CHECK_ONLY && { info "Checks passed. Nothing installed (--check)."; exit 0; }
 
 info "Installing to $DEST_DIR"

@@ -126,8 +126,11 @@ even without changes:
 ```bash
 cd ~/picklemypaddle-infra && git pull
 git log -p ORIG_HEAD..HEAD -- staging/    # review what changed
-sudo ./staging/install.sh
+sudo ./staging/install.sh                 # the full install; --check and --set-token don't apply changes
 ```
+
+`sudo ./staging/install.sh --check` warns "installed files differ from this checkout" when
+you've pulled changes but haven't installed them yet.
 
 ### Remove staging
 
