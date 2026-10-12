@@ -1,7 +1,8 @@
 # Pickle My Paddle — staging stack on home-server (SCRUM-16).
 #
 #   Mac / LAN ──► http://home-server:${STAGING_PORT}  ──► gateway (Caddy) ──► site            (everything else)
-#                                                                    └──► integrations    (/api/*)
+#   tailnet   ──► https://home-server.<tailnet>.ts.net:8443                └──► integrations    (/api/*)
+#                 (Tailscale Serve → 127.0.0.1:${STAGING_PORT}, SCRUM-38)
 #
 # Only the gateway publishes a port. Components sit on a private Docker network,
 # so nothing else on home-server (or its other containers) can collide with them.
@@ -65,7 +66,8 @@ services:
     environment:
       APP_ENV: staging
       PORT: "8080"
-      PUBLIC_SITE_ORIGIN: ${STAGING_PUBLIC_URL:-http://home-server:8088}
+      # Every address staging is opened from (CORS); install.sh --tailscale adds the tailnet one.
+      PUBLIC_SITE_ORIGIN: ${STAGING_SITE_ORIGINS:-http://home-server:8088}
     env_file:
       - path: ${INTEGRATIONS_ENV_FILE:-/etc/picklemypaddle/integrations.env}
         required: true

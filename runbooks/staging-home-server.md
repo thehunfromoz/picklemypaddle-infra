@@ -1,6 +1,8 @@
 # Staging on home-server: setup and day-to-day
 
-Jira: SCRUM-16. Staging lives at **http://home-server:8088**.
+Jira: SCRUM-16. Staging lives at **http://home-server:8088** on the LAN and, for club demos,
+at **https://home-server.tail8bc7ae.ts.net:8443** on your tailnet (SCRUM-38, see
+[Club demos over Tailscale](#club-demos-over-tailscale-scrum-38)).
 
 ## How it works
 
@@ -111,6 +113,89 @@ ping -c1 home-server
   echo "192.168.1.24  home-server" | sudo tee -a /etc/hosts
   ```
 
+## Club demos over Tailscale (SCRUM-38)
+
+Open staging on your phone, iPad or laptop from anywhere, including over mobile data at a
+club, at **https://home-server.tail8bc7ae.ts.net:8443**. Only devices signed in to your
+tailnet can reach it. Nothing is exposed to the public internet (no Funnel).
+
+What makes it safe to show:
+
+- **Preview ribbon** at the top of every page, and a **test-order notice** above the order
+  form. The staging gateway switches these on; the live site never shows them.
+- **Not indexed:** every response carries `X-Robots-Tag: noindex, nofollow` and
+  `/robots.txt` disallows everything.
+- **No real payments:** the integrations service refuses live Stripe keys on staging.
+
+### Turn it on (once)
+
+Before the first time, in the Tailscale admin console → **DNS**: MagicDNS and **HTTPS
+Certificates** are on (they already are if the app on port 443 uses HTTPS).
+
+```bash
+cd ~/picklemypaddle-infra && git pull
+sudo ./staging/install.sh               # applies the gateway and updater changes first
+sudo ./staging/install.sh --tailscale
+```
+
+It lists your existing Serve settings, refuses to go ahead if port 8443 is taken or
+Funnel is on, adds `https://…:8443 → http://127.0.0.1:8088`, then checks that nothing
+else changed (if anything did, it undoes its own change). It then:
+
+- adds the tailnet address to `STAGING_SITE_ORIGINS`, so `/api` accepts calls from it;
+- points `STAGING_PUBLIC_URL` (the link on the GitHub ✓) at it;
+- checks the address itself: valid certificate, noindex, security headers, ribbon, `/api`.
+
+The setting survives reboots. Running it again changes nothing. The port is
+`TAILSCALE_HTTPS_PORT` in `/opt/picklemypaddle/staging/.env`.
+
+### Add a phone or iPad
+
+1. Install **Tailscale** from the App Store (or Google Play).
+2. Sign in with the **same account** as home-server, and allow the VPN configuration.
+3. In the Tailscale admin console → **Machines**, approve the device if asked. To stop it
+   needing a fresh login every few months, open the device's **⋯** menu → **Disable key
+   expiry**.
+4. Switch Tailscale on and open https://home-server.tail8bc7ae.ts.net:8443 in Safari.
+   Share → **Add to Home Screen** gives you a one-tap icon for demos.
+
+Only add your own devices. A club's laptop or phone should look over your shoulder, not
+join your tailnet.
+
+### Before a club visit
+
+- [ ] Phone: Tailscale **on**, **Wi-Fi off**, open the home-screen icon. The Preview ribbon
+      shows.
+- [ ] It's the version you want to show: the latest site commit on GitHub has a green
+      `staging/home-server` ✓ (or compare `/version.txt` with the commit).
+- [ ] Skim each page for `[To confirm: …]` placeholders you'd rather not show, and the
+      order form for the test-order notice.
+- [ ] home-server is on and online: the Tailscale app lists it as connected.
+- [ ] Phone charged; a few screenshots saved in Photos in case the venue has no signal.
+
+### Turn it off
+
+```bash
+sudo ./staging/install.sh --tailscale-off
+```
+
+This removes only port 8443 from Tailscale Serve. The app on 443 and the LAN address
+http://home-server:8088 keep working, and the GitHub links go back to the LAN address.
+To shut out a single lost device instead, remove it in the admin console → **Machines**.
+
+### If something's wrong
+
+| Symptom | Fix |
+| --- | --- |
+| Phone: "server can't be found" | Tailscale isn't connected on the phone, or "Use Tailscale DNS" is off in its settings. |
+| Certificate warning, or the first load hangs | The first certificate can take a minute. Check HTTPS Certificates are enabled (DNS page), then re-run `--tailscale`. |
+| No Preview ribbon | The gateway change isn't applied: `sudo ./staging/install.sh`. |
+| `--tailscale` says the integrations image predates SCRUM-38 | Pages work; `/api` from the tailnet address starts working after integrations updates (merge its SCRUM-38 PR). |
+
+Good to know: certificates are public records, so the name `home-server.tail8bc7ae.ts.net`
+is visible in certificate-transparency logs (it already was, because of the app on 443).
+The name only resolves to a tailnet address that nobody outside your tailnet can connect to.
+
 ## Day to day
 
 | I want to… | Run on home-server |
@@ -167,6 +252,23 @@ sudo docker compose -p pmp-staging down
 sudo rm /etc/systemd/system/pmp-staging-update.{service,timer} && sudo systemctl daemon-reload
 sudo rm -r /opt/picklemypaddle/staging /var/lib/pmp-staging
 ```
+
+## Acceptance checks (SCRUM-38)
+
+1. **CI (infra):** the `Lint scripts and compose file` job shellchecks `staging/tailscale.sh`,
+   unit-tests the Serve config checks (`tests/tailscale_serve_test.py`) and runs
+   `--tailscale` / `--tailscale-off` against a stand-in `tailscale` (`tests/tailscale.test.sh`:
+   :443 untouched, no Funnel, conflicts refused, changes undone). The `Real site image runs
+   behind the gateway` job checks noindex, `robots.txt` and `/env.css`, and runs the site's
+   smoke tests with `EXPECT_STAGING=1`.
+2. **On home-server:** `sudo ./staging/install.sh --tailscale` ends with "Done", and
+   `tailscale serve status` shows the 443 app unchanged plus `:8443 → 127.0.0.1:8088`, with no
+   Funnel.
+3. **Phone demo:** on mobile data with Wi-Fi off, open the address, browse every page (ribbon
+   on each), go to the order form and see the test-order notice.
+4. **Private:** on a device not on the tailnet (or the phone with Tailscale switched off), the
+   address doesn't resolve or doesn't connect.
+5. The `staging/home-server` ✓ on GitHub links to the tailnet address.
 
 ## Acceptance checks (SCRUM-17)
 

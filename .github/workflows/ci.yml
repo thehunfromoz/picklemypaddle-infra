@@ -35,6 +35,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: shellcheck
         run: shellcheck staging/*.sh tests/*.sh
+      # SCRUM-38. Kept in this job so the required check names don't change.
+      - name: Tailscale Serve config checks (unit)
+        run: python3 -m unittest discover -s tests -p '*_test.py' -v
+      - name: install.sh --tailscale / --tailscale-off (stand-in tailscale)
+        run: bash tests/tailscale.test.sh
       - name: Compose file is valid
         run: |
           cp staging/.env.example staging/.env
@@ -90,6 +95,11 @@ jobs:
           grep -qi "^content-security-policy: default-src 'self'" <<<"$headers"
           grep -qi '^x-frame-options: DENY' <<<"$headers"
           if grep -qi '^server:' <<<"$headers"; then echo "Server header leaked"; exit 1; fi
+          # Staging-only (SCRUM-38): noindex everywhere, disallow-all robots.txt, Preview ribbon CSS
+          grep -qi '^x-robots-tag: noindex' <<<"$headers"
+          curl -fsS http://127.0.0.1:8088/robots.txt | grep -qx 'Disallow: /'
+          curl -fsSI http://127.0.0.1:8088/env.css | grep -qi '^content-type: text/css'
+          curl -fsS http://127.0.0.1:8088/env.css | grep -q 'data-env="staging-only"\]\[hidden\]'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
       - name: Integrations answers on /api through the gateway, as staging
         run: |
@@ -105,7 +115,7 @@ jobs:
             exit 0
           fi
           docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
-            -e BASE_URL=http://127.0.0.1:8088 "$smoke"
+            -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke"
       - name: Logs on failure
         if: failure()
         run: |

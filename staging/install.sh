@@ -5,6 +5,9 @@
 #   sudo ./staging/install.sh --check      only run the pre-flight checks
 #   sudo ./staging/install.sh --set-token  store (or replace) the GitHub token used
 #                                          to post "staging" commit statuses (SCRUM-17)
+#   sudo ./staging/install.sh --tailscale  also serve staging over Tailscale (HTTPS, tailnet
+#                                          only) at https://<host>.<tailnet>.ts.net:8443 (SCRUM-38)
+#   sudo ./staging/install.sh --tailscale-off  stop serving it over Tailscale
 #
 # Safe to re-run: it keeps your existing /opt/picklemypaddle/staging/.env.
 # You run this by hand after reviewing a change; nothing runs it automatically.
@@ -22,8 +25,10 @@ SET_TOKEN=false
 case "${1:-}" in
   --check) CHECK_ONLY=true ;;
   --set-token) SET_TOKEN=true ;;
+  --tailscale) exec "$SRC_DIR/tailscale.sh" on ;;
+  --tailscale-off) exec "$SRC_DIR/tailscale.sh" off ;;
   "") ;;
-  *) echo "usage: sudo $0 [--check|--set-token]" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 [--check|--set-token|--tailscale|--tailscale-off]" >&2; exit 2 ;;
 esac
 
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }

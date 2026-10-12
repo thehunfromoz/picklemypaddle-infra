@@ -90,8 +90,14 @@ through GitHub commit statuses, or Attila pastes command output.
   home-server (`--check` warns when the installed files are stale).
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
-- **Tailscale:** `https://home-server.tail8bc7ae.ts.net` (port 443) already serves another
-  app (`localhost:3000`). Don't touch it. Staging is planned on `:8443` (SCRUM-38).
+- **Tailscale (SCRUM-38):** staging is also at `https://home-server.tail8bc7ae.ts.net:8443`
+  (tailnet only, never Funnel), via `install.sh --tailscale` / `--tailscale-off`. Port 443
+  on that name serves another app (`localhost:3000`): never touch it. CORS origins are
+  `STAGING_SITE_ORIGINS` (comma-separated); `STAGING_PUBLIC_URL` is only the status link.
+- **Staging-only behaviour lives in the gateway:** noindex, `robots.txt`, and `/env.css`,
+  which reveals the site's `[data-env="staging-only"]` elements (Preview ribbon, test-order
+  notice). The image is identical for production, so never bake staging behaviour into the
+  build. Smoke runs through the gateway set `EXPECT_STAGING=1`.
 
 ## Decisions worth knowing
 

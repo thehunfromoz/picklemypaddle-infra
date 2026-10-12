@@ -97,6 +97,7 @@ curl -fsSI "http://127.0.0.1:$PORT/" | grep -qi '^server:' && die "gateway leaks
 grep -q "^/repos/test/site/statuses/rev-A Bearer test-token pending " "$STATUSES" || die "no pending status for A"
 [[ "$(status_of A)" == "success | "* ]] || die "expected success status for A, got: $(status_of A)"
 grep -q "smoke: got 'version A'" "$STATE_DIR/site.smoke.log" || die "smoke tests didn't run against the gateway"
+grep -q "(EXPECT_STAGING=1)" "$STATE_DIR/site.smoke.log" || die "smoke tests weren't told they run on staging (EXPECT_STAGING=1)"
 pass "1. first run deploys A via the gateway on port $PORT; smoke tests pass; GitHub gets pending then success"
 
 # 2 ── broken release
