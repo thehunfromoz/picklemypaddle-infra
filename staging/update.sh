@@ -114,6 +114,7 @@ ensure_gateway() {
 }
 
 # Run the smoke-test image built from the same commit (<repo>-smoke:<sha>).
+# EXPECT_STAGING=1: the suite also checks the staging-only Preview ribbon and noindex (SCRUM-38).
 # Returns 0 = passed, 1 = failed, 2 = could not run (no image, no label, ...).
 run_smoke() { # run_smoke <service> <image-id> <repo>
   local svc="$1" id="$2" repo="$3" rev smoke prev name="pmp-smoke-$1" rc=0
@@ -130,6 +131,7 @@ run_smoke() { # run_smoke <service> <image-id> <repo>
   docker rm -f "$name" >/dev/null 2>&1 || true
   timeout "$SMOKE_TIMEOUT" docker run --name "$name" --rm --network host --shm-size=1g \
     --cap-drop ALL --security-opt no-new-privileges -e BASE_URL="$SMOKE_BASE_URL" \
+    -e EXPECT_STAGING=1 \
     "$smoke" >"$STATE_DIR/$svc.smoke.log" 2>&1 || rc=1
   docker rm -f "$name" >/dev/null 2>&1 || true
   tail -n 5 "$STATE_DIR/$svc.smoke.log" | sed "s/^/$svc smoke | /"
