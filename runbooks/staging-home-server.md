@@ -36,12 +36,18 @@ home-server ── pmp-staging-update.timer ─► update.sh ─► docker compo
 
 ## One-time setup
 
-### 1. Make the site image public on GHCR (once)
+### 1. Make the images public on GHCR (once)
 
-home-server pulls without logging in. On github.com go to your profile → **Packages** →
-**picklemypaddle-site** → **Package settings** → **Change visibility** → **Public**.
-(The repo is already public, so this exposes nothing new.) The infra CI job "Real site
-image runs behind the gateway" fails with a clear message until this is done.
+home-server pulls without logging in. On github.com go to your profile → **Packages**, and
+for **each** of these: **Package settings** → **Change visibility** → **Public**.
+
+- **picklemypaddle-site**
+- **picklemypaddle-site-smoke**: the site's smoke tests. While it's private, every deploy
+  reports "smoke tests could not run".
+- **picklemypaddle-integrations**
+
+(The repos are already public, so this exposes nothing new.) The infra CI job "Real site
+image runs behind the gateway" fails with a clear message until all three are public.
 
 ### 2. Install on home-server
 
