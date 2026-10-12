@@ -110,8 +110,20 @@ jobs:
         run: |
           rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/thehunfromoz/picklemypaddle-site:staging)
           smoke=ghcr.io/thehunfromoz/picklemypaddle-site-smoke:$rev
-          if ! docker pull -q "$smoke"; then
-            echo "::notice::No smoke-test image for site commit ${rev:0:7} yet (published from SCRUM-17 onwards); skipped."
+          if ! err="$(docker pull -q "$smoke" 2>&1)"; then
+            # Tell "package private" apart from "this commit's tag was never published".
+            # TEMPORARY (SCRUM-38): warning, not failure, until the fixed publish step in
+            # image.yml has published a smoke image; then set level=error.
+            level=warning
+            repo=thehunfromoz/picklemypaddle-site-smoke
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r .token 2>/dev/null || true)"
+            tags="$(curl -sS -H "Authorization: Bearer $token" "https://ghcr.io/v2/$repo/tags/list?n=1000" | jq -r '.tags // [] | .[]' 2>/dev/null | tail -n 5 | xargs || true)"
+            if [[ -z "$token" || "$token" == null ]]; then
+              echo "::$level::Can't pull $smoke anonymously ($err). The picklemypaddle-site-smoke GHCR package looks private: make it public (runbooks/staging-home-server.md, step 1)."
+            else
+              echo "::$level::The smoke image for site commit ${rev:0:7} was never published ($err). Tags in the package: ${tags:-none}. Check the site's 'image / Image' publish step for that commit."
+            fi
+            [[ "$level" == error ]] && exit 1
             exit 0
           fi
           docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \

@@ -123,9 +123,22 @@ jobs:
           EXTRA: ${{ inputs.extra-images }}
           SHA: ${{ github.sha }}
         run: |
-          while IFS='=' read -r local remote; do
-            [ -n "$local" ] || continue
-            docker tag "$local" "$remote:$SHA" && docker push -q "$remote:$SHA"
+          # Each extra image must exist locally, push, and then be readable from GHCR;
+          # otherwise fail with the reason (a silently skipped push once left
+          # home-server without smoke tests for days, SCRUM-38).
+          while IFS='=' read -r src dest; do
+            [ -n "$src" ] || continue
+            if ! docker image inspect "$src" >/dev/null 2>&1; then
+              echo "::error title=publish::local image $src doesn't exist (the container test should build it)"; exit 1
+            fi
+            docker tag "$src" "$dest:$SHA"
+            if ! out="$(docker push -q "$dest:$SHA" 2>&1)"; then
+              echo "::error title=publish::pushing $dest:$SHA failed: ${out//$'\n'/ }"; exit 1
+            fi
+            if ! docker buildx imagetools inspect "$dest:$SHA" >/dev/null 2>&1; then
+              echo "::error title=publish::$dest:$SHA was pushed but GHCR doesn't have it"; exit 1
+            fi
+            echo "published $dest:$SHA"
           done <<<"$EXTRA"
           docker tag "$LOCAL" "$REMOTE:$SHA"; docker push -q "$REMOTE:$SHA"
           docker tag "$LOCAL" "$REMOTE:staging"; docker push -q "$REMOTE:staging"
@@ -147,7 +160,7 @@ jobs:
             gh api --paginate "/users/$owner/packages/container/$pkg/versions" \
               --jq '.[] | select((.metadata.container.tags|length) > 0 and all(.metadata.container.tags[]; test("^[0-9a-f]{40}$"))) | "\(.created_at) \(.id)"' \
               | sort -r | tail -n +"$((KEEP + 1))" | while read -r _ id; do
-                echo "deleting $pkg version $id"
+                echo "::notice title=prune::deleting $pkg version $id"
                 gh api -X DELETE "/users/$owner/packages/container/$pkg/versions/$id" || echo "::warning::could not delete $pkg $id"
               done
           done
