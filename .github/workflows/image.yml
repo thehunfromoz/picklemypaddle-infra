@@ -88,6 +88,8 @@ jobs:
           IMAGE: ${{ env.LOCAL }}
           SCRIPT: ${{ inputs.container-test }}
         run: |
+          # pipefail: without it the if tests tee's status, so failures never failed the job (SCRUM-38).
+          set -o pipefail
           if ! bash "$SCRIPT" 2>&1 | tee /tmp/container-test.log; then
             out="$(tail -n 40 /tmp/container-test.log)"
             echo "::error title=container tests failed::${out//$'\n'/%0A}"
