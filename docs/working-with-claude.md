@@ -39,6 +39,11 @@ SCRUM-21 security/privacy.
   `version.txt`). Don't assume.
 - **Only Attila merges to `main`.** Rulesets enforce PRs and passing checks on all repos.
 - **Branches:** `scrum-<n>-<short-name>`. Squash noisy work into clean commits before review.
+  The session's clones are **shallow**: don't `commit --amend` or squash with
+  `reset --soft` onto a shallow boundary (it once produced a parentless commit and an
+  unrecoverable PR). Squash on a fresh branch from `origin/main`, and check
+  `git rev-parse HEAD^` before force-pushing. After pushing a new branch, set its upstream
+  (`branch.<b>.remote/merge`) so the stop hook sees it as pushed.
 - **Commits** are authored `Attila Madarasz <attila.madarasz@mac.com>` and end with the
   session's `Co-Authored-By` / `Claude-Session` lines. PR descriptions end with the
   "Generated with Claude Code" line and the session link.
@@ -47,6 +52,9 @@ SCRUM-21 security/privacy.
   visitors never see placeholders (sections stay hidden instead).
 - **Keep token use modest:** check CI once rather than polling in long loops; request only
   the Jira fields needed.
+- **A green tick isn't proof.** Check that a test actually ran (annotations, the published
+  image, the staging status text). Since 13 Oct this has caught: test steps that never
+  failed a job, a smoke image that was never published, and a ribbon that never rendered.
 
 ## What the build session can't do (GitHub proxy limits)
 
@@ -77,7 +85,15 @@ through GitHub commit statuses, or Attila pastes command output.
   names plus `Lint GitHub workflows` and `secrets / Secret scan`. **Renaming a job
   changes its check name**, so new ruleset files are needed, merged in the right order.
 - Merge to `main` publishes `ghcr.io/thehunfromoz/<repo>:staging` and `:<sha>` (site also
-  `picklemypaddle-site-smoke:<sha>`). A `vX.Y.Z` release re-tags without rebuilding.
+  `picklemypaddle-site-smoke:<sha>`). A `vX.Y.Z` release re-tags without rebuilding. The
+  publish step fails unless every image is readable back from GHCR. All three GHCR
+  packages are public (home-server pulls anonymously).
+- Shared steps that pipe through `tee` must `set -o pipefail` (fixed 13 Oct; before that, test
+  failures never failed a job). Failures surface as `::error` annotations. In infra CI the
+  site smoke suite (`EXPECT_STAGING=1`, through the gateway) annotates its failing tests,
+  which is the quickest way to see why home-server rolled back.
+- **Site `.trivyignore` expires 26 Oct 2026** (Go 1.26.9 / x/net 0.60.0 CVEs in the
+  `caddy:2-alpine` base). Remove it once a fixed Caddy is out, or re-review with Attila.
 
 ## Staging (home-server, 192.168.1.24, Ubuntu)
 
@@ -87,7 +103,13 @@ through GitHub commit statuses, or Attila pastes command output.
   and rolls back on failure. It posts the result as a `staging/home-server` commit status.
   Full detail is in `runbooks/staging-home-server.md`.
 - Changes to `staging/` take effect only after `git pull && sudo ./staging/install.sh` on
-  home-server (`--check` warns when the installed files are stale).
+  home-server (`--check` warns when the installed files are stale). `install.sh` restarts the
+  gateway before the first update: a running gateway keeps its old Caddyfile until it is
+  recreated. Hand-run compose commands need `-f compose.staging.yml` from
+  `/opt/picklemypaddle/staging`.
+- A build that failed its checks is remembered as known-bad and not retried. To retry:
+  `sudo rm -f /var/lib/pmp-staging/site.known-bad && sudo systemctl start
+  pmp-staging-update.service` (the smoke run takes about 6 min).
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
 - **Tailscale (SCRUM-38):** staging is also at `https://home-server.tail8bc7ae.ts.net:8443`
@@ -97,7 +119,10 @@ through GitHub commit statuses, or Attila pastes command output.
 - **Staging-only behaviour lives in the gateway:** noindex, `robots.txt`, and `/env.css`,
   which reveals the site's `[data-env="staging-only"]` elements (Preview ribbon, test-order
   notice). The image is identical for production, so never bake staging behaviour into the
-  build. Smoke runs through the gateway set `EXPECT_STAGING=1`.
+  build. Smoke runs through the gateway set `EXPECT_STAGING=1`. Staging CSS in `/env.css`
+  must sit in `@layer base`: Tailwind v4 hides `[hidden]` with a layered `!important` rule,
+  which beats any unlayered rule. In the Caddyfile, `respond` treats a first argument starting
+  with `@` or `/` as a matcher, so use `respond * "…" 200`.
 
 ## Decisions worth knowing
 
