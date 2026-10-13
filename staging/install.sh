@@ -168,6 +168,23 @@ systemctl daemon-reload
 systemctl enable --now pmp-staging-update.timer >/dev/null
 ok "timer enabled"
 
+# Refresh the gateway BEFORE the first update: the update runs the smoke tests
+# through the gateway, and a running gateway keeps its old Caddyfile until it is
+# recreated (SCRUM-38: new staging checks ran against the old config and failed).
+# On a first install there is no gateway yet; the updater starts it.
+if [[ -n "$ours" ]]; then
+  info "Refreshing the gateway (new image and config)"
+  docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" pull -q gateway || true
+  docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
+    up -d --pull never --force-recreate --no-deps --wait --wait-timeout 60 gateway >/dev/null ||
+    fail "the gateway didn't come back healthy; see: sudo docker compose -p pmp-staging logs gateway"
+  if curl -fsS "http://127.0.0.1:$PORT/env.css" | grep -q 'data-env="staging-only"'; then
+    ok "gateway restarted with this checkout's config and serves the staging /env.css"
+  else
+    fail "gateway restarted, but /env.css isn't the staging one; check: curl http://127.0.0.1:$PORT/env.css"
+  fi
+fi
+
 info "First update (pulls images, starts the stack, waits for health checks)"
 if systemctl start pmp-staging-update.service; then
   ok "staging is up"
@@ -180,10 +197,6 @@ fi
 docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
   up -d --pull never --no-deps integrations >/dev/null 2>&1 || true
 
-# Refresh the gateway image and pick up any gateway config change.
-docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" pull -q gateway || true
-docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
-  up -d --pull never --force-recreate --no-deps gateway >/dev/null 2>&1 || true
 sleep 2
 
 if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
