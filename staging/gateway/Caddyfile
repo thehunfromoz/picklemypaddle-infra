@@ -35,9 +35,10 @@
 		header Content-Type "text/css; charset=utf-8"
 		header Cache-Control "no-store"
 		header X-Content-Type-Options "nosniff"
-		respond <<CSS
-			[data-env="staging-only"][hidden] { display: block !important; }
-			CSS 200
+		# In Tailwind's "base" layer on purpose: Tailwind hides [hidden] with an
+		# !important rule in that layer, and for !important a layered rule beats an
+		# unlayered one, so an unlayered rule here never showed the ribbon (SCRUM-38).
+		respond * "@layer base { [data-env=\"staging-only\"][hidden] { display: block !important; } }" 200
 	}
 
 	# The integrations service (orders, CRM, payments). If it is down, only /api fails.

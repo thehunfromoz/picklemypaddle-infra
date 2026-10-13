@@ -112,9 +112,7 @@ jobs:
           smoke=ghcr.io/thehunfromoz/picklemypaddle-site-smoke:$rev
           if ! err="$(docker pull -q "$smoke" 2>&1)"; then
             # Tell "package private" apart from "this commit's tag was never published".
-            # TEMPORARY (SCRUM-38): warning, not failure, until the fixed publish step in
-            # image.yml has published a smoke image; then set level=error.
-            level=warning
+            level=error
             repo=thehunfromoz/picklemypaddle-site-smoke
             token="$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r .token 2>/dev/null || true)"
             tags="$(curl -sS -H "Authorization: Bearer $token" "https://ghcr.io/v2/$repo/tags/list?n=1000" | jq -r '.tags // [] | .[]' 2>/dev/null | tail -n 5 | xargs || true)"
@@ -126,8 +124,20 @@ jobs:
             [[ "$level" == error ]] && exit 1
             exit 0
           fi
+          # Failures become an annotation, so they can be read without the job log.
+          # (Workflow-command titles can't contain ',' or ':' unescaped.)
+          rc=0
           docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
-            -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke"
+            -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke" >/tmp/smoke.log 2>&1 || rc=$?
+          cat /tmp/smoke.log
+          if [ "$rc" -ne 0 ]; then
+            # Every failing test and the totals first, then the first error details.
+            out="$( { grep -E '^ *[0-9]+\) |^ *[0-9]+ (failed|flaky|passed|skipped)' /tmp/smoke.log || true; } | sed 's/ ─*$//')"
+            out="$out"$'\n\n'"$( { grep -E 'Error|Expected|Received|expect\(|timed out' /tmp/smoke.log || true; } | head -n 20)"
+            [ -n "$out" ] || out="$(tail -n 40 /tmp/smoke.log)"
+            echo "::error title=smoke tests failed for site ${rev:0:7} (exit $rc)::${out//$'\n'/%0A}"
+            exit 1
+          fi
       - name: Logs on failure
         if: failure()
         run: |
