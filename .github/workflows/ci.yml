@@ -1,0 +1,143 @@
+# Checks every pull request and push to main for the infra repo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    uses: ./.github/workflows/secret-scan.yml
+
+  workflows:
+    name: Lint GitHub workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint (also shellchecks run blocks)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest \
+            -format '{{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}}%0A{{end}}'
+
+  lint:
+    name: Lint scripts and compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck staging/*.sh tests/*.sh
+      # SCRUM-38. Kept in this job so the required check names don't change.
+      - name: Tailscale Serve config checks (unit)
+        run: python3 -m unittest discover -s tests -p '*_test.py' -v
+      - name: install.sh --tailscale / --tailscale-off (stand-in tailscale)
+        run: bash tests/tailscale.test.sh
+      - name: Compose file is valid
+        run: |
+          cp staging/.env.example staging/.env
+          touch /tmp/integrations.env
+          sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          docker compose -f staging/compose.staging.yml --project-directory staging config -q
+          # Updater targets: exactly the labelled services
+          test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "integrations site"
+      - name: systemd units are valid
+        run: |
+          sudo mkdir -p /opt/picklemypaddle/staging
+          sudo install -m 0755 staging/update.sh /opt/picklemypaddle/staging/update.sh
+          systemd-analyze verify staging/systemd/pmp-staging-update.service staging/systemd/pmp-staging-update.timer
+
+  updater:
+    name: Updater deploys, rolls back and recovers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/staging-update.test.sh
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; for c in $(docker ps -aq); do echo "--- $(docker inspect -f '{{.Name}}' "$c")"; docker logs --tail 15 "$c" 2>&1; done)"
+          echo "::error title=containers::${out//$'\n'/%0A}"
+
+  site-image:
+    name: Real site image runs behind the gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull :staging images anonymously (as home-server will)
+        run: |
+          docker pull ghcr.io/thehunfromoz/picklemypaddle-integrations:staging || {
+            echo "::error::Can't pull the integrations image without logging in. Merge picklemypaddle-integrations #1 first, and make sure the GHCR package is public."; exit 1; }
+          if ! docker pull ghcr.io/thehunfromoz/picklemypaddle-site:staging; then
+            echo "::error::Can't pull the site image without logging in. Make the GHCR package public (see runbooks/staging-home-server.md, step 1)."
+            exit 1
+          fi
+      - name: Start the staging stack
+        run: |
+          cp staging/.env.example staging/.env
+          sed -i 's/^STAGING_BIND=.*/STAGING_BIND=127.0.0.1/' staging/.env
+          touch /tmp/integrations.env
+          sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          docker compose -f staging/compose.staging.yml --project-directory staging up -d --wait --wait-timeout 120
+      - name: Site answers through the gateway with its security headers
+        run: |
+          curl -fsS http://127.0.0.1:8088/healthz
+          curl -fsS http://127.0.0.1:8088/ | grep -q 'Pickle My Paddle'
+          headers="$(curl -fsSI http://127.0.0.1:8088/)"
+          echo "$headers"
+          grep -qi "^content-security-policy: default-src 'self'" <<<"$headers"
+          grep -qi '^x-frame-options: DENY' <<<"$headers"
+          if grep -qi '^server:' <<<"$headers"; then echo "Server header leaked"; exit 1; fi
+          # Staging-only (SCRUM-38): noindex everywhere, disallow-all robots.txt, Preview ribbon CSS
+          grep -qi '^x-robots-tag: noindex' <<<"$headers"
+          curl -fsS http://127.0.0.1:8088/robots.txt | grep -qx 'Disallow: /'
+          curl -fsSI http://127.0.0.1:8088/env.css | grep -qi '^content-type: text/css'
+          curl -fsS http://127.0.0.1:8088/env.css | grep -q 'data-env="staging-only"\]\[hidden\]'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/no-such-page)" = 404
+      - name: Integrations answers on /api through the gateway, as staging
+        run: |
+          out="$(curl -fsS http://127.0.0.1:8088/api/status)"
+          echo "$out"
+          grep -q '"env":"staging"' <<<"$out"
+      - name: That build's own smoke tests pass against the stack (SCRUM-17)
+        run: |
+          rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/thehunfromoz/picklemypaddle-site:staging)
+          smoke=ghcr.io/thehunfromoz/picklemypaddle-site-smoke:$rev
+          if ! err="$(docker pull -q "$smoke" 2>&1)"; then
+            # Tell "package private" apart from "this commit's tag was never published".
+            level=error
+            repo=thehunfromoz/picklemypaddle-site-smoke
+            token="$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r .token 2>/dev/null || true)"
+            tags="$(curl -sS -H "Authorization: Bearer $token" "https://ghcr.io/v2/$repo/tags/list?n=1000" | jq -r '.tags // [] | .[]' 2>/dev/null | tail -n 5 | xargs || true)"
+            if [[ -z "$token" || "$token" == null ]]; then
+              echo "::$level::Can't pull $smoke anonymously ($err). The picklemypaddle-site-smoke GHCR package looks private: make it public (runbooks/staging-home-server.md, step 1)."
+            else
+              echo "::$level::The smoke image for site commit ${rev:0:7} was never published ($err). Tags in the package: ${tags:-none}. Check the site's 'image / Image' publish step for that commit."
+            fi
+            [[ "$level" == error ]] && exit 1
+            exit 0
+          fi
+          # Failures become an annotation, so they can be read without the job log.
+          # (Workflow-command titles can't contain ',' or ':' unescaped.)
+          rc=0
+          docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
+            -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke" >/tmp/smoke.log 2>&1 || rc=$?
+          cat /tmp/smoke.log
+          if [ "$rc" -ne 0 ]; then
+            out="$( { grep -E '✘|[0-9]+\) |Error|Expected|Received|expect\(|failed|passed|flaky|timed out' /tmp/smoke.log || true; } | head -n 60)"
+            [ -n "$out" ] || out="$(tail -n 40 /tmp/smoke.log)"
+            echo "::error title=smoke tests failed for site ${rev:0:7} (exit $rc)::${out//$'\n'/%0A}"
+            exit 1
+          fi
+      - name: Logs on failure
+        if: failure()
+        run: |
+          out="$(docker ps -a --format '{{.Names}} {{.Status}}'; docker compose -f staging/compose.staging.yml --project-directory staging logs --tail 15 2>&1)"
+          echo "::error title=containers::${out//$'\n'/%0A}"

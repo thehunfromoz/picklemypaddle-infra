@@ -1,0 +1,20 @@
+[Unit]
+Description=Pickle My Paddle staging: pull new images, health-check, roll back if unhealthy
+Documentation=https://github.com/thehunfromoz/picklemypaddle-infra/blob/main/runbooks/staging-home-server.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=STACK_DIR=/opt/picklemypaddle/staging
+Environment=STATE_DIR=/var/lib/pmp-staging
+# Keep Docker's client config (and any later registry login) out of /root.
+Environment=DOCKER_CONFIG=/var/lib/pmp-staging/docker
+StateDirectory=pmp-staging
+ExecStart=/opt/picklemypaddle/staging/update.sh
+TimeoutStartSec=15min
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
