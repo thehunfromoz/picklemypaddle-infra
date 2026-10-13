@@ -45,6 +45,8 @@ jobs:
         env:
           SCRIPTS: ${{ inputs.scripts }}
         run: |
+          # pipefail: without it the if tests tee's status, so failures never failed the job (SCRUM-38).
+          set -o pipefail
           for s in $SCRIPTS; do
             echo "::group::pnpm $s"
             if ! pnpm run "$s" 2>&1 | tee "/tmp/$s.log"; then
