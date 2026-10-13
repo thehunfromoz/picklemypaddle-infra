@@ -131,7 +131,9 @@ jobs:
             -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke" >/tmp/smoke.log 2>&1 || rc=$?
           cat /tmp/smoke.log
           if [ "$rc" -ne 0 ]; then
-            out="$( { grep -E '✘|[0-9]+\) |Error|Expected|Received|expect\(|failed|passed|flaky|timed out' /tmp/smoke.log || true; } | head -n 60)"
+            # Every failing test and the totals first, then the first error details.
+            out="$( { grep -E '^ *[0-9]+\) |^ *[0-9]+ (failed|flaky|passed|skipped)' /tmp/smoke.log || true; } | sed 's/ ─*$//')"
+            out="$out"$'\n\n'"$( { grep -E 'Error|Expected|Received|expect\(|timed out' /tmp/smoke.log || true; } | head -n 20)"
             [ -n "$out" ] || out="$(tail -n 40 /tmp/smoke.log)"
             echo "::error title=smoke tests failed for site ${rev:0:7} (exit $rc)::${out//$'\n'/%0A}"
             exit 1
