@@ -2,7 +2,7 @@
 
 > **Starting a new Claude session?** Read [docs/working-with-claude.md](docs/working-with-claude.md) first.
 
-Deployment and shared CI for Pickle My Paddle. Jira epic: SCRUM-6.
+Deployment and shared CI for PickleMyPaddle. Jira epic: SCRUM-6.
 
 Planned contents (built under SCRUM-15/16/17/18):
 

@@ -89,7 +89,7 @@ jobs:
       - name: Site answers through the gateway with its security headers
         run: |
           curl -fsS http://127.0.0.1:8088/healthz
-          curl -fsS http://127.0.0.1:8088/ | grep -q 'Pickle My Paddle'
+          curl -fsS http://127.0.0.1:8088/ | grep -q 'PickleMyPaddle'
           headers="$(curl -fsSI http://127.0.0.1:8088/)"
           echo "$headers"
           grep -qi "^content-security-policy: default-src 'self'" <<<"$headers"

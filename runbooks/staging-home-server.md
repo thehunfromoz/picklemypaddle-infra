@@ -90,8 +90,10 @@ Staging keeps the integrations service's keys in **`/etc/picklemypaddle/integrat
 those permissions. Nothing else on home-server, and nothing in any repo, holds these keys.
 
 - **Only test-mode values on staging.** Use a Stripe *test* secret key (`sk_test_…`) and webhook
-  secret, and the HubSpot *test* portal's private-app token. The service refuses to start with a
-  live Stripe key on staging. The error names the setting but never shows the key.
+  secret, and a service key from the HubSpot *test* portal ("PickleMyPaddle test"). HubSpot's new
+  accounts have no legacy private apps; create the key under Settings → Integrations → Service Keys
+  with contacts, companies and deals read/write plus their schema scopes. The service refuses to
+  start with a live Stripe key on staging. The error names the setting but never shows the key.
 - Edit it with `sudo nano /etc/picklemypaddle/integrations.env`, then apply with
   `cd ~/picklemypaddle-infra && sudo ./staging/install.sh`.
 - `APP_ENV`, `PORT` and `PUBLIC_SITE_ORIGIN` are fixed in `compose.staging.yml`, so this file

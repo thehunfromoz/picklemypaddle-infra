@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or update the Pickle My Paddle staging stack on home-server (SCRUM-16).
+# Install or update the PickleMyPaddle staging stack on home-server (SCRUM-16).
 #
 #   sudo ./staging/install.sh              install, or apply changes from this checkout
 #   sudo ./staging/install.sh --check      only run the pre-flight checks
@@ -133,7 +133,7 @@ install -d -m 0755 "$DEST_DIR" "$DEST_DIR/gateway"
 install -d -m 0700 "$(dirname "$SECRETS_FILE")"
 if [[ ! -f "$SECRETS_FILE" ]]; then
   ( umask 077; cat >"$SECRETS_FILE" <<'SECRETS'
-# Pickle My Paddle integrations service: STAGING secrets. Root-only (chmod 600).
+# PickleMyPaddle integrations service: STAGING secrets. Root-only (chmod 600).
 # TEST-MODE values only: the service refuses a live Stripe key on staging.
 # Leave a value empty until its integration is built. After editing, apply with:
 #   cd ~/picklemypaddle-infra && sudo ./staging/install.sh
