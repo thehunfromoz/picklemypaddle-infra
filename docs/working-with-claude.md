@@ -1,4 +1,4 @@
-# Working with Claude on Pickle My Paddle
+# Working with Claude on PickleMyPaddle
 
 Read this first in every new Claude session. It's the hand-over between sessions: how we
 work, what's decided, and what the build session can't do. Detail lives in Jira, the repo
@@ -7,7 +7,7 @@ change to how we work.
 
 ## The project
 
-Pickle My Paddle re-grits pickleball paddles in Sydney: **A$60 per paddle, both faces**,
+PickleMyPaddle re-grits pickleball paddles in Sydney: **A$60 per paddle, both faces**,
 plus return postage. Individuals post paddles in; clubs hand over batches for pickup and earn
 10%. Owner: Attila Madarasz.
 

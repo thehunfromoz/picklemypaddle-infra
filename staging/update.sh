@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pickle My Paddle staging updater (SCRUM-16).
+# PickleMyPaddle staging updater (SCRUM-16).
 #
 # Run every 2 minutes by the pmp-staging-update.timer on home-server. For each
 # component it:

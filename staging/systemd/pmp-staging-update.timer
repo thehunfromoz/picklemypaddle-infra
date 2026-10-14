@@ -1,5 +1,5 @@
 [Unit]
-Description=Check for new Pickle My Paddle staging images every 2 minutes
+Description=Check for new PickleMyPaddle staging images every 2 minutes
 
 [Timer]
 OnBootSec=2min

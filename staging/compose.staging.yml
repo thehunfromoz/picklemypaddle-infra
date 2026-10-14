@@ -1,4 +1,4 @@
-# Pickle My Paddle — staging stack on home-server (SCRUM-16).
+# PickleMyPaddle — staging stack on home-server (SCRUM-16).
 #
 #   Mac / LAN ──► http://home-server:${STAGING_PORT}  ──► gateway (Caddy) ──► site            (everything else)
 #   tailnet   ──► https://home-server.<tailnet>.ts.net:8443                └──► integrations    (/api/*)
