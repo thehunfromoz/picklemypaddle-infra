@@ -40,7 +40,7 @@ visitors ─► :80 / :443 ─► gateway (Caddy, automatic HTTPS) ─► site
   publishes ports (80, 443/tcp, 443/udp for HTTP/3). The firewall (ufw) already allows these;
   remember Docker can bypass ufw for any port it publishes, so the compose file publishes nothing else.
 - Use `sudo` for Docker commands. Don't add the `ubuntu` user to the `docker` group: that
-  group is root-equivalent, and the `sudo` password prompt is a useful pause.
+  group is root-equivalent, and typing `sudo` makes each Docker command a deliberate act.
 
 ## One-time setup
 
@@ -91,6 +91,8 @@ The first `vX.Y.Z` that goes to production is the launch. Check these first:
 - [ ] **Signed off on staging:** the commit you release is the one staging runs
       (`http://home-server:8088/version.txt`), with a green `staging/home-server` tick.
 - [ ] Privacy policy shows the right contact email and the OVH Sydney location.
+- [ ] **Privacy policy matches what runs.** It says the site uses Umami on our own server, and Umami
+      isn't deployed anywhere yet: deploy it, or reword the policy.
 - [ ] ABN registered (decision: before launch).
 
 ## Deploying a release
