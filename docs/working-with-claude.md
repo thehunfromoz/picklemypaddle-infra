@@ -2,7 +2,8 @@
 
 Read this first in every new Claude session. It's the hand-over between sessions: how we
 work, what's decided, and what the build session can't do. Detail lives in Jira, the repo
-READMEs and `runbooks/`. Keep this file short and current; update it in the same PR as any
+READMEs and `runbooks/`; where every account, server and secret lives is in
+[as-built.md](as-built.md). Keep this file short and current; update it in the same PR as any
 change to how we work.
 
 ## The project
