@@ -1,0 +1,84 @@
+# PickleMyPaddle — production stack on the OVH VPS (SCRUM-19).
+#
+#   internet ──► :80 / :443 ──► gateway (Caddy, automatic HTTPS) ──► site
+#
+# www.<domain> is the canonical address; the bare domain redirects to it. The
+# integrations service (/api/*) is added here later; today production is the site only.
+#
+# Only the gateway publishes ports. The site sits on a private Docker network.
+# Unlike staging there is NO auto-update label and no timer: a person runs
+# update.sh to deploy a release (vX.Y.Z), see runbooks/production-ovh-vps.md.
+name: pmp-production
+
+# Docker keeps container logs forever by default; cap them so a 40 GB disk can't fill up.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-picklemypaddle.com}
+      ACME_EMAIL: ${ACME_EMAIL:-sales@picklemypaddle.com}
+      HSTS: ${HSTS:-max-age=86400}
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account. Must survive restarts and re-installs:
+      # Let's Encrypt limits how many certificates one name may be issued per week.
+      - caddy_data:/data
+    networks: [production]
+    read_only: true
+    tmpfs: [/config]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      # Plain-HTTP listener inside the container only (not published); see the Caddyfile.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/gateway-healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Deliberately no depends_on: the gateway (and its certificates) stays up while the
+  # site is updated, rolled back or not yet deployed; visitors then get a plain
+  # "temporarily unavailable" (503) page instead of a connection error.
+  site:
+    # The release comes from .env (SITE_VERSION, written by update.sh after a deploy
+    # passes its checks). Empty means "no release deployed yet": nothing is pulled.
+    image: ${SITE_IMAGE_REPO:-ghcr.io/thehunfromoz/picklemypaddle-site}:${SITE_VERSION:-none}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      SITE_ADDRESS: ":80"
+      HSTS: ${HSTS:-max-age=86400}
+      ORDER_API_ORIGIN: ""
+    networks: [production]
+    read_only: true
+    tmpfs: [/data, /config]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  production:
+    name: pmp-production
+
+volumes:
+  caddy_data:
+    name: pmp-production-caddy-data
