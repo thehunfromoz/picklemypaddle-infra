@@ -1,0 +1,66 @@
+# Pickle My Paddle (SCRUM-19):  www.<domain> is the canonical address; the bare domain
+# redirects to it. The names come from the container environment (SITE_DOMAIN;
+# compose.production.yml), so CI can run the same file on "localhost".
+#
+#   <domain>       ──► 301 to https://www.<domain>
+#   www.<domain>   ──► pmp-site                  (later: /api/* ──► pmp-integrations)
+#
+# The site's backend is reached by its own unique name on this site's private network
+# (pmp-site), so other websites on this server can never clash with it or reach it.
+
+{$SITE_DOMAIN:picklemypaddle.com} {
+	header Strict-Transport-Security "{$HSTS:max-age=86400}"
+	header -Server
+
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		redir https://www.{$SITE_DOMAIN:picklemypaddle.com}{uri} permanent
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+www.{$SITE_DOMAIN:picklemypaddle.com} {
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	# SCRUM-8/9 (integrations) will add:  handle /api/* { reverse_proxy pmp-integrations:8080 }
+
+	handle {
+		reverse_proxy pmp-site:80
+	}
+
+	# The site is stopped, restarting, or not deployed yet: a plain 503, not indexed or cached.
+	handle_errors {
+		header Strict-Transport-Security "{$HSTS:max-age=86400}"
+		header Cache-Control "no-store"
+		header X-Robots-Tag "noindex"
+		header X-Content-Type-Options "nosniff"
+		header Retry-After "30"
+		header Content-Type "text/plain; charset=utf-8"
+		respond "PickleMyPaddle is temporarily unavailable. Please try again in a few minutes." 503
+	}
+
+	header -Server
+	log {
+		output stdout
+		format console
+	}
+}
+
+# picklemypaddle.com.au (register after the ABN, end of Nov 2026): when it is registered and its
+# DNS points at this server, uncomment this so it redirects to the canonical address. Leave it
+# off until then: Caddy would keep asking Let's Encrypt for a certificate it cannot get.
+#
+# picklemypaddle.com.au, www.picklemypaddle.com.au {
+# 	header Strict-Transport-Security "{$HSTS:max-age=86400}"
+# 	header -Server
+# 	redir https://www.{$SITE_DOMAIN:picklemypaddle.com}{uri} permanent
+# }

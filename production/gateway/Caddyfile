@@ -1,0 +1,28 @@
+# Production gateway (SCRUM-19): the only thing on the VPS that faces the internet.
+#
+# Caddy gets and renews Let's Encrypt certificates by itself for every hostname in the
+# site files, and redirects http:// to https://. It can serve several websites: each one is
+# a file in sites/ (one per site, imported below), so adding a site never touches this file
+# or another site's file. See runbooks/production-ovh-vps.md, "Adding another website".
+#
+#   sites/picklemypaddle.caddy   picklemypaddle.com  ──► 301 to www;  www ──► the site
+#
+# Security headers come from each site's own Caddy and pass through untouched. The
+# gateway only adds HSTS to what it answers itself, and hides its own Server header.
+# Unlike staging, nothing here says noindex: production is meant to be found.
+{
+	admin off
+	email {$ACME_EMAIL:sales@picklemypaddle.com}
+}
+
+# Docker's health check only. Plain HTTP on a loopback port that compose does not publish,
+# so it never competes with the HTTPS sites below or gets redirected.
+http://:8081 {
+	bind 127.0.0.1
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+}
+
+# One file per website. A file that does not end in .caddy is ignored.
+import /etc/caddy/sites/*.caddy

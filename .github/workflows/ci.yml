@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck staging/*.sh tests/*.sh
+        run: shellcheck staging/*.sh production/*.sh tests/*.sh
       # SCRUM-38. Kept in this job so the required check names don't change.
       - name: Tailscale Serve config checks (unit)
         run: python3 -m unittest discover -s tests -p '*_test.py' -v
@@ -48,6 +48,37 @@ jobs:
           docker compose -f staging/compose.staging.yml --project-directory staging config -q
           # Updater targets: exactly the labelled services
           test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "integrations site"
+      # SCRUM-19. Kept in this job so the required check names don't change.
+      - name: Production compose file and gateway Caddyfile are valid
+        run: |
+          cp production/.env.example production/.env
+          docker compose -f production/compose.production.yml --project-directory production config -q
+          # The gateway config is the Caddyfile plus one file per website (gateway/sites/*.caddy).
+          # Validate it as the container sees it: once with the defaults, once with a realistic
+          # domain and a quoted HSTS value, and once with the new-site template switched on.
+          gateway="$PWD/production/gateway"
+          check() { # check <title> <sites dir> [docker -e options...]
+            local title="$1" sites="$2"; shift 2
+            if ! out="$(docker run --rm "$@" -v "$gateway/Caddyfile:/etc/caddy/Caddyfile:ro" \
+              -v "$sites:/etc/caddy/sites:ro" caddy:2-alpine \
+              caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1)"; then
+              echo "::error title=production Caddyfile ($title)::${out//$'\n'/%0A}"; exit 1
+            fi
+          }
+          check defaults "$gateway/sites"
+          check "example.com, HSTS" "$gateway/sites" -e SITE_DOMAIN=example.com -e 'HSTS=max-age=31536000; includeSubDomains'
+          tmp="$(mktemp -d)"
+          cp "$gateway"/sites/*.caddy "$tmp/"
+          cp "$gateway/sites/new-site.caddy.example" "$tmp/new-site.caddy"
+          check "with the new-site template" "$tmp"
+      - name: Production never updates itself (no timer, no auto-update label)
+        run: |
+          if [ -e production/systemd ]; then
+            echo "::error::production/ must not have an updater timer: releases are deployed by hand (update.sh)"; exit 1
+          fi
+          if grep -rq 'com.picklemypaddle.autoupdate' production; then
+            echo "::error::production services must not carry the auto-update label"; exit 1
+          fi
       - name: systemd units are valid
         run: |
           sudo mkdir -p /opt/picklemypaddle/staging
@@ -60,6 +91,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tests/staging-update.test.sh
+      # SCRUM-19: production install, manual deploys and rollbacks. Kept in this job so the
+      # required check names don't change.
+      - name: Production install, deploy and rollback (SCRUM-19)
+        run: bash tests/production-update.test.sh
       - name: Diagnostics on failure
         if: failure()
         run: |

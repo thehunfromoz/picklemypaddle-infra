@@ -12,7 +12,11 @@ Planned contents (built under SCRUM-15/16/17/18):
   day-to-day: [runbooks/staging-home-server.md](runbooks/staging-home-server.md).
   After each deploy it runs that build's smoke tests and posts a `staging/home-server`
   commit status to GitHub (SCRUM-17).
-- `production/`: OVH VPS setup (parked until staging sign-off; SCRUM-19/20).
+- `production/` (SCRUM-19): the OVH VPS stack: Docker Compose with a Caddy gateway that gets
+  HTTPS certificates by itself for `picklemypaddle.com` and `www`, serving the site (integrations
+  to follow); other websites can be added alongside it, one file each. There is **no auto-updater**: a person runs `update.sh deploy vX.Y.Z`, which shows the
+  change, asks, health-checks, checks the live site and rolls back on failure. Production only runs
+  release tags. Setup and day-to-day: [runbooks/production-ovh-vps.md](runbooks/production-ovh-vps.md).
 - `.github/workflows/`: shared CI the component repos call (SCRUM-13/15), so a fix lands everywhere at once:
   - `node-checks.yml`: install a pnpm/Node 22 project and run its checks (lint, type-check, tests…);
     each failure is summarised on the PR.
