@@ -10,6 +10,9 @@
 # are deployed by hand with /opt/picklemypaddle/production/update.sh. Until the first
 # release, visitors get the gateway's "temporarily unavailable" page.
 #
+# Several websites can share the gateway (gateway/sites/*.caddy). This script proves HTTPS for
+# Pickle My Paddle only; check any other website yourself (runbook, "Adding another website").
+#
 # Safe to re-run: it keeps your .env, the certificates and the running site. You run it by
 # hand after reviewing a change; nothing runs it automatically and it installs no timer.
 set -euo pipefail
@@ -107,9 +110,11 @@ fi
 
 # Is what is installed in /opt the same as this checkout? (What runs is /opt, not the checkout.)
 stale=""
-for f in compose.production.yml gateway/Caddyfile update.sh; do
+for f in compose.production.yml update.sh; do
   cmp -s "$SRC_DIR/$f" "$DEST_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
+# The gateway config is the Caddyfile plus one file per website in gateway/sites/.
+diff -rq "$SRC_DIR/gateway" "$DEST_DIR/gateway" >/dev/null 2>&1 || stale="$stale gateway/"
 if [[ -n "$stale" ]]; then
   printf '  \033[33m!\033[0m installed files differ from this checkout:%s\n    Apply them with: sudo %s\n' "$stale" "$0"
 else
@@ -122,13 +127,22 @@ if $CHECK_ONLY; then
 fi
 
 info "Installing to $DEST_DIR"
-install -d -m 0755 "$DEST_DIR" "$DEST_DIR/gateway" "$STATE_DIR"
-# A running gateway keeps its old Caddyfile until it is recreated (the admin API that could
-# reload it is switched off on purpose), so recreate it whenever the file changes.
+install -d -m 0755 "$DEST_DIR" "$DEST_DIR/gateway" "$DEST_DIR/gateway/sites" "$STATE_DIR"
+# A running gateway keeps its old config until it is recreated (the admin API that could
+# reload it is switched off on purpose), so recreate it whenever the Caddyfile or any
+# website's file changes, is added or is removed.
 recreate=()
-cmp -s "$SRC_DIR/gateway/Caddyfile" "$DEST_DIR/gateway/Caddyfile" 2>/dev/null || recreate=(--force-recreate)
+diff -rq "$SRC_DIR/gateway" "$DEST_DIR/gateway" >/dev/null 2>&1 || recreate=(--force-recreate)
 install -m 0644 "$SRC_DIR/compose.production.yml" "$DEST_DIR/compose.production.yml"
 install -m 0644 "$SRC_DIR/gateway/Caddyfile" "$DEST_DIR/gateway/Caddyfile"
+# The checkout is the source of truth for which websites exist: copy its site files, and
+# remove installed ones that are no longer in it (a website that was taken out).
+for f in "$SRC_DIR"/gateway/sites/*; do
+  [[ -f "$f" ]] && install -m 0644 "$f" "$DEST_DIR/gateway/sites/$(basename "$f")"
+done
+for f in "$DEST_DIR"/gateway/sites/*; do
+  [[ -f "$f" && ! -e "$SRC_DIR/gateway/sites/$(basename "$f")" ]] && rm -f "$f"
+done
 install -m 0755 "$SRC_DIR/update.sh" "$DEST_DIR/update.sh"
 if [[ -f "$DEST_DIR/.env" ]]; then
   ok "kept existing .env"

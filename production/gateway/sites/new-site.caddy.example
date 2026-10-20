@@ -1,0 +1,31 @@
+# Template for another website on this server (copy to <name>.caddy; this .example file
+# is ignored by Caddy but CI checks that it stays valid). Steps: runbooks/production-ovh-vps.md,
+# "Adding another website". Use the real domain, not the placeholders below.
+#
+# The backend (here "blog-site") is a container from that site's own compose project,
+# attached to a network that only this gateway and that site share.
+blog.example.com, www.blog.example.com {
+	# Start small, raise later (same advice as for Pickle My Paddle: runbook, "Raising HSTS").
+	header Strict-Transport-Security "max-age=86400"
+	header -Server
+
+	@bare host blog.example.com
+	redir @bare https://www.blog.example.com{uri} permanent
+
+	handle {
+		reverse_proxy blog-site:80
+	}
+
+	handle_errors {
+		header Cache-Control "no-store"
+		header X-Robots-Tag "noindex"
+		header Retry-After "30"
+		header Content-Type "text/plain; charset=utf-8"
+		respond "This site is temporarily unavailable. Please try again in a few minutes." 503
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

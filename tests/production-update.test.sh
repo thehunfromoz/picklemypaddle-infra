@@ -15,6 +15,8 @@
 #   8. rollback goes back to it; deploying what already runs does nothing
 #   9. check and status work; production has no auto-update timer or label
 #  10. re-installing leaves an unchanged site alone and applies an .env change (HSTS)
+#  11. a second website's file in gateway/sites/ is served next to Pickle My Paddle, and
+#      removing it takes it away again, without touching the running site
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -167,5 +169,24 @@ bash "$ROOT/production/install.sh" >"$WORK/out" 2>&1 || die "re-install after an
 get -D - -o /dev/null https://www.localhost/ | grep -qi '^strict-transport-security: max-age=3600' || die "an HSTS change in .env should reach the site after install.sh"
 [[ "$(pinned)" == v1.0.0 ]] || die "install.sh must not change the pinned release"
 pass "10. re-install leaves an unchanged site alone, applies an .env change, keeps the release"
+
+# 11 ── a second website on the same gateway
+SRC2="$WORK/src2"
+cp -r "$ROOT/production" "$SRC2"
+printf 'other.localhost {\n\trespond "other site" 200\n}\n' >"$SRC2/gateway/sites/other.caddy"
+other() { curl -sk --max-time 10 --resolve other.localhost:443:127.0.0.1 https://other.localhost/ 2>/dev/null || echo "(no answer)"; }
+[[ "$(other)" != "other site" ]] || die "other.localhost should not be served before its file is installed"
+before="$(site_running)"
+bash "$SRC2/install.sh" >"$WORK/out" 2>&1 || die "install with a second website failed"
+[[ -f "$STACK_DIR/gateway/sites/other.caddy" ]] || die "the second website's file should be installed"
+[[ "$(other)" == "other site" ]] || die "the second website should be served, got: $(other)"
+[[ "$(served)" == *"version rev-v1.0.0"* ]] || die "Pickle My Paddle should keep serving v1.0.0 next to the second website"
+[[ "$(site_running)" == "$before" ]] || die "adding a website must not restart the Pickle My Paddle site"
+rm "$SRC2/gateway/sites/other.caddy"
+bash "$SRC2/install.sh" >"$WORK/out" 2>&1 || die "install after removing the second website failed"
+[[ ! -e "$STACK_DIR/gateway/sites/other.caddy" ]] || die "a website taken out of the checkout should be removed on install"
+[[ "$(other)" != "other site" ]] || die "the removed website should no longer be served"
+[[ "$(served)" == *"version rev-v1.0.0"* ]] || die "Pickle My Paddle should still serve v1.0.0"
+pass "11. a second website is served next to Pickle My Paddle and can be taken away again"
 
 echo "All production scenarios passed."

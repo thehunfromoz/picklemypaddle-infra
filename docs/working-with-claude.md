@@ -134,11 +134,16 @@ through GitHub commit statuses, or Attila pastes command output.
   vX.Y.Z` on the VPS; it shows the change, asks, health-checks, checks the live site and rolls back
   on failure. Production runs release tags (`vX.Y.Z`) only, never `:staging`. A release is a GitHub
   Release on the site repo (Attila publishes it; the session can't create tags).
+- **One gateway, several websites.** The Caddy gateway serves every site on the VPS: one file each in
+  `production/gateway/sites/`, each site its own Compose project and private network (Attila plans a
+  consulting/showcase site, possibly a third; not AdventureLog, which stays on home-server via
+  Tailscale). Steps: "Adding another website" in the production runbook. Static or light sites only
+  (2 vCores, 4 GB). This repo may be split or renamed once the consulting site is built.
 - The VPS can't be reached from the session: Attila pastes command output, as for home-server.
 - Production-only behaviour lives in `production/`; the site image is the same one staging runs.
-  **Known gap before launch:** CI builds the site with `SITE_URL=http://home-server:8088` and releases
-  re-tag that image, so canonicals, sitemap and `robots.txt` would name staging. `update.sh` refuses
-  such a release until the site's CI builds with the production URL.
+  The site image bakes in `SITE_URL`, so it is built with the production address (site PR #31);
+  releases must be cut from a commit that includes it. `update.sh` refuses (and rolls back) any
+  release whose pages still name `home-server`.
 - Secrets (when integrations arrive) go in `/etc/picklemypaddle/integrations.env` on the VPS (root,
   600), live keys only, same pattern as staging.
 

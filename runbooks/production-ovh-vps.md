@@ -2,7 +2,8 @@
 
 Jira: SCRUM-19. Production is **https://www.picklemypaddle.com** (the bare domain
 `picklemypaddle.com` redirects to it), served from the OVH VPS-1 in Sydney. Today it runs the
-website only; the integrations service (orders, CRM, payments) joins later.
+website only; the integrations service (orders, CRM, payments) joins later. The same gateway can
+serve other websites on this server (see "Adding another website").
 
 ## How it works
 
@@ -29,7 +30,13 @@ visitors ─► :80 / :443 ─► gateway (Caddy, automatic HTTPS) ─► site
 - **Certificates** are kept in the Docker volume `pmp-production-caddy-data`. Don't delete it:
   Let's Encrypt limits how often one name can be issued a certificate.
 - Container logs are capped (3 × 10 MB per container), so they can't fill the 40 GB disk.
-- Everything runs in its own Compose project (`pmp-production`) and network. Only the gateway
+- **The gateway can serve several websites.** Its main `gateway/Caddyfile` holds only the shared
+  settings; each website is one file in `gateway/sites/` (Pickle My Paddle is
+  `picklemypaddle.caddy`). Each website runs in its own Compose project on its own private
+  network, and the gateway joins that network, so websites can't reach each other, only the
+  gateway reaches them. They share the gateway, the certificates volume and the server, so a
+  gateway mistake or a server compromise affects all of them (CI validates the gateway config).
+- Pickle My Paddle runs in its own Compose project (`pmp-production`) and network. Only the gateway
   publishes ports (80, 443/tcp, 443/udp for HTTP/3). The firewall (ufw) already allows these;
   remember Docker can bypass ufw for any port it publishes, so the compose file publishes nothing else.
 - Use `sudo` for Docker commands. Don't add the `ubuntu` user to the `docker` group: that
@@ -73,12 +80,14 @@ The last one is expected until the first release is deployed.
 The first `vX.Y.Z` that goes to production is the launch. Check these first:
 
 - [ ] **No placeholders left** in the site: `pnpm build && pnpm check:placeholders` passes. Open
-      items: the terms page (return postage service, lost/damaged remedy) and the About photo.
-- [ ] **The site image doesn't point at staging.** CI builds the site with
-      `SITE_URL=http://home-server:8088`, and a release only re-tags that image, so the canonical
-      links, the sitemap and `robots.txt` would name `home-server`. `update.sh` refuses such a
-      release (the "staging address" check). Fix it in the site repo's CI before releasing;
-      see the PR description of SCRUM-19.
+      items: the terms page (return postage service, lost/damaged remedy), the About photo and the
+      ABN in the site data. Nothing blocks a release automatically yet: the check isn't wired into CI.
+- [ ] **The site image doesn't point at staging.** A release only re-tags the image CI built on
+      `main`, and that image used to be built with `SITE_URL=http://home-server:8088`, so the
+      canonical links, the sitemap and `robots.txt` would name `home-server`. The site repo's PR #31
+      builds it with the production address instead. **Cut the first release from a commit that
+      includes that change**; `update.sh` refuses (and rolls back) a release that still names
+      `home-server` (the "staging address" check).
 - [ ] **Signed off on staging:** the commit you release is the one staging runs
       (`http://home-server:8088/version.txt`), with a green `staging/home-server` tick.
 - [ ] Privacy policy shows the right contact email and the OVH Sydney location.
@@ -141,10 +150,50 @@ git log -p ORIG_HEAD..HEAD -- production/    # review what changed
 sudo ./production/install.sh
 ```
 
-It restarts the gateway only when its Caddyfile or settings changed (a few seconds without HTTPS),
+It restarts the gateway only when its Caddyfile, a website's file in `gateway/sites/`, or its
+settings changed (a few seconds without HTTPS),
 never changes the site's release, and applies a changed `.env` setting to the running site.
 `sudo ./production/install.sh --check` warns "installed files differ from this checkout" when you
 have pulled but not installed yet.
+
+### Adding another website
+
+For a second site on this server (the consulting site, say). Nothing here changes Pickle My
+Paddle's site or its certificates. The gateway restarts for a few seconds when it is applied.
+Do the DNS step first, because Caddy can only get a certificate once the name points here.
+
+1. **DNS (Cloudflare):** `A` records for the new names (`@` and `www`) pointing at the VPS,
+   **DNS only** (not proxied), as for Pickle My Paddle.
+2. **The site's own stack** gets its own Compose project (a separate folder such as
+   `/opt/picklemypaddle/<name>`, its own `.env`, its own release process; it never shares files
+   or secrets with Pickle My Paddle). Its web container must have a **unique network alias**
+   (for example `blog-site`) and join a network that the gateway also joins:
+   ```yaml
+   services:
+     site:
+       networks:
+         blogweb:
+           aliases: [blog-site]
+   networks:
+     blogweb:
+       name: blog-web
+       external: true     # created by the gateway's compose file (next step)
+   ```
+3. **In this repo (a PR, as usual):** in `production/compose.production.yml` add the network
+   (`blogweb: {name: blog-web}`) at the bottom and to the gateway's `networks:` list. Copy
+   `production/gateway/sites/new-site.caddy.example` to `production/gateway/sites/<name>.caddy`
+   and put in the real domain and alias. CI validates the result.
+4. **Install:** `sudo ./production/install.sh` (it copies the new file and recreates the gateway),
+   then start the new site's own stack. Until it runs visitors get the plain 503 page.
+5. **Check it yourself** (the installer proves HTTPS for Pickle My Paddle only):
+   `curl -sI https://www.<new-domain>/ | head -n 1` and `curl -sI https://<new-domain>/ | head -n 1`
+   (expect a `200`, and a `301` to `www`).
+
+To take a website away: delete its file in `gateway/sites/` (and its network from the compose
+file) in a PR, then run `install.sh`; it removes the installed file and restarts the gateway.
+
+Keep this to static or light websites: the VPS-1 has 2 vCores and 4 GB RAM. Anything heavy or
+holding customer data (a mobile-app backend with accounts, say) is better on a second server.
 
 ### Raise HSTS after a week
 
@@ -182,11 +231,13 @@ sudo docker volume rm pmp-production-caddy-data
 ## Acceptance checks (SCRUM-19)
 
 1. **CI (infra):** the `Lint scripts and compose file` job shellchecks `production/*.sh`, validates
-   the production compose file and runs `caddy validate` on the gateway Caddyfile, and fails if
+   the production compose file and runs `caddy validate` on the gateway Caddyfile with every
+   website file in `gateway/sites/` (and the new-site template), and fails if
    `production/` gains an updater timer or the auto-update label. The `Updater deploys, rolls back
    and recovers` job runs `tests/production-update.test.sh`: install, HTTPS on `localhost`, the
    503 page, a failed first deploy, release-tags-only, a good deploy, an unhealthy release, a
-   release with the staging address, a second release, rollback, and re-install.
+   release with the staging address, a second release, rollback, re-install, and a second
+   website added to and removed from the gateway without touching the Pickle My Paddle site.
 2. **On the VPS:** `sudo ./production/install.sh` ends with "Done" and the four `curl` checks above
    give the expected answers.
 3. **First release:** `update.sh deploy vX.Y.Z` ends with "is live at https://www.picklemypaddle.com",
