@@ -17,10 +17,10 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 | `picklemypaddle-site` | Astro 7 + Tailwind v4 website (static, served by Caddy) |
 | `picklemypaddle-integrations` | TypeScript/Node 22 service (Hono, zod): orders, HubSpot, Stripe |
 | `picklemypaddle-agents` | TypeScript/Node 22: helper agents (all parked) |
-| `picklemypaddle-infra` | Staging stack, updater, shared CI workflows, runbooks, this guide |
+| `picklemypaddle-infra` | Staging and production stacks, updaters, shared CI workflows, runbooks, this guide |
 
 Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
-apart from parked OVH stories 19/20 and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
+apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
 SCRUM-8 orders, SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
@@ -124,6 +124,29 @@ through GitHub commit statuses, or Attila pastes command output.
   must sit in `@layer base`: Tailwind v4 hides `[hidden]` with a layered `!important` rule,
   which beats any unlayered rule. In the Caddyfile, `respond` treats a first argument starting
   with `@` or `/` as a matcher, so use `respond * "…" 200`.
+
+## Production (OVH VPS-1, Sydney; SCRUM-19)
+
+- https://www.picklemypaddle.com (the bare domain redirects to it). A Caddy gateway with automatic
+  HTTPS in front of the site; integrations join later. Stack in `production/`, detail in
+  `runbooks/production-ovh-vps.md`. Cloudflare DNS is **DNS only** (not proxied) so Caddy can get
+  its certificates.
+- **Nothing deploys itself.** Attila runs `sudo /opt/picklemypaddle/production/update.sh deploy
+  vX.Y.Z` on the VPS; it shows the change, asks, health-checks, checks the live site and rolls back
+  on failure. Production runs release tags (`vX.Y.Z`) only, never `:staging`. A release is a GitHub
+  Release on the site repo (Attila publishes it; the session can't create tags).
+- **One gateway, several websites.** The Caddy gateway serves every site on the VPS: one file each in
+  `production/gateway/sites/`, each site its own Compose project and private network (Attila plans a
+  consulting/showcase site, possibly a third; not AdventureLog, which stays on home-server via
+  Tailscale). Steps: "Adding another website" in the production runbook. Static or light sites only
+  (2 vCores, 4 GB). This repo may be split or renamed once the consulting site is built.
+- The VPS can't be reached from the session: Attila pastes command output, as for home-server.
+- Production-only behaviour lives in `production/`; the site image is the same one staging runs.
+  The site image bakes in `SITE_URL`, so it is built with the production address (site PR #31);
+  releases must be cut from a commit that includes it. `update.sh` refuses (and rolls back) any
+  release whose pages still name `home-server`.
+- Secrets (when integrations arrive) go in `/etc/picklemypaddle/integrations.env` on the VPS (root,
+  600), live keys only, same pattern as staging.
 
 ## Decisions worth knowing
 
