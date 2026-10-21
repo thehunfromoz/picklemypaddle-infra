@@ -13,5 +13,7 @@
 	respond /robots.txt "User-agent: * Allow: / Sitemap: {$ORIGIN}{$SITEMAP}" 200
 	respond {$SITEMAP} "<urlset><url><loc>{$ORIGIN}/</loc></url></urlset>" 200
 	respond /env.css "/* staging-only elements stay hidden */" 200
-	respond "<link rel=canonical href={$ORIGIN}/> version {$VERSION}" 200
+	respond / "<link rel=canonical href={$ORIGIN}/> version {$VERSION}" 200
+	# Anything else is a real 404, so a missing /sitemap.xml or /robots.txt is detectable (SCRUM-36).
+	respond "not found" 404
 }
