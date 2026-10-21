@@ -46,9 +46,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'die "unexpected failure at line $LINENO"' ERR
 
-publish() { # publish <tag> <health-status> [baked-origin]
+publish() { # publish <tag> <health-status> [baked-origin] [sitemap-path]
   docker build -q -t "$IMG:$1" -f "$ROOT/tests/fixtures/prod-site.Dockerfile" \
-    --build-arg VERSION="rev-$1" --build-arg HEALTH="$2" --build-arg ORIGIN="${3:-https://www.picklemypaddle.com}" \
+    --build-arg VERSION="rev-$1" --build-arg HEALTH="$2" --build-arg ORIGIN="${3:-https://www.picklemypaddle.com}" --build-arg SITEMAP="${4:-/sitemap.xml}" \
     --label org.opencontainers.image.revision="rev-$1" \
     --label org.opencontainers.image.source=https://github.com/test/site \
     "$ROOT/tests/fixtures" >/dev/null
@@ -93,7 +93,8 @@ grep -q "site is stopped" "$WORK/out" || die "expected the 'site is stopped' mes
 pass "1. failed first deploy: site stopped, 503 page, nothing recorded"
 
 # 2 ── no --yes and no terminal
-publish v1.0.0 200
+# v1.0.0 stands for a release from before SCRUM-36: its sitemap is /sitemap-index.xml.
+publish v1.0.0 200 https://www.picklemypaddle.com /sitemap-index.xml
 if update deploy v1.0.0 </dev/null; then die "deploying without --yes and without a terminal should refuse"; fi
 grep -q -- "--yes" "$WORK/out" || die "expected the refusal to mention --yes"
 [[ -z "$(site_running)" && -z "$(pinned)" ]] || die "refused deploy must change nothing"
@@ -133,6 +134,13 @@ grep -q "home-server" "$WORK/out" || die "expected the failure to name home-serv
 [[ "$(served)" == *"version rev-v1.0.0"* ]] || die "after rollback expected v1.0.0, got: $(served)"
 pass "6. v1.2.0 (staging address baked in) rolled back by the live-site checks"
 
+# 6b ── healthy, but no sitemap at either address
+publish v1.2.1 200 https://www.picklemypaddle.com /not-a-sitemap.xml
+if update deploy v1.2.1 --yes; then die "a release without a sitemap must fail the live checks"; fi
+grep -q "sitemap" "$WORK/out" || die "expected the failure to name the sitemap"
+[[ "$(served)" == *"version rev-v1.0.0"* ]] || die "after rollback expected v1.0.0, got: $(served)"
+pass "6b. v1.2.1 (no /sitemap.xml) rolled back by the live-site checks"
+
 # 7 ── second good release
 publish v1.3.0 200
 update deploy v1.3.0 --yes || die "a good release should deploy"
@@ -140,7 +148,7 @@ update deploy v1.3.0 --yes || die "a good release should deploy"
 [[ "$(pinned)" == v1.3.0 ]] || die ".env should pin v1.3.0"
 [[ "$(cat "$STATE_DIR/site.previous-version")" == v1.0.0 ]] || die "previous release should be v1.0.0"
 grep -q 'compare/rev-v1.0.0...rev-v1.3.0' "$WORK/out" || die "expected a GitHub compare link in the summary"
-pass "7. v1.3.0 deployed; v1.0.0 remembered as the rollback target; compare link shown"
+pass "7. v1.3.0 (serves /sitemap.xml, v1.0.0 the older /sitemap-index.xml) deployed; v1.0.0 remembered as the rollback target; compare link shown"
 
 # 8 ── rollback, then a no-op
 update rollback --yes || die "rollback should work"

@@ -17,6 +17,7 @@ Planned contents (built under SCRUM-15/16/17/18):
   to follow); other websites can be added alongside it, one file each. There is **no auto-updater**: a person runs `update.sh deploy vX.Y.Z`, which shows the
   change, asks, health-checks, checks the live site and rolls back on failure. Production only runs
   release tags. Setup and day-to-day: [runbooks/production-ovh-vps.md](runbooks/production-ovh-vps.md).
+- `runbooks/search-console-go-live.md` (SCRUM-36): the Google Search Console steps for launch day.
 - `.github/workflows/`: shared CI the component repos call (SCRUM-13/15), so a fix lands everywhere at once:
   - `node-checks.yml`: install a pnpm/Node 22 project and run its checks (lint, type-check, tests…);
     each failure is summarised on the PR.

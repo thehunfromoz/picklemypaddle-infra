@@ -10,8 +10,8 @@
 	}
 	respond /healthz "health {$HEALTH}" {$HEALTH}
 	respond /version.txt "{$VERSION}" 200
-	respond /robots.txt "User-agent: * Allow: / Sitemap: {$ORIGIN}/sitemap-index.xml" 200
-	respond /sitemap-index.xml "<sitemapindex><loc>{$ORIGIN}/sitemap-0.xml</loc></sitemapindex>" 200
+	respond /robots.txt "User-agent: * Allow: / Sitemap: {$ORIGIN}{$SITEMAP}" 200
+	respond {$SITEMAP} "<urlset><url><loc>{$ORIGIN}/</loc></url></urlset>" 200
 	respond /env.css "/* staging-only elements stay hidden */" 200
 	respond "<link rel=canonical href={$ORIGIN}/> version {$VERSION}" 200
 }
