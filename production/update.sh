@@ -117,7 +117,10 @@ verify_live() { # verify_live <commit the running release was built from>
     return 1
   fi
   if grep -qi 'home-server' <<<"$robots"; then REASON="/robots.txt points at the staging address (home-server)"; return 1; fi
-  sitemap="$(site_get /sitemap-index.xml 2>/dev/null)" || { REASON="/sitemap-index.xml is missing"; return 1; }
+  # SCRUM-36: the site serves /sitemap.xml. Releases before that served /sitemap-index.xml, and
+  # rolling back to one of them must still pass.
+  sitemap="$(site_get /sitemap.xml 2>/dev/null)" || sitemap="$(site_get /sitemap-index.xml 2>/dev/null)" ||
+    { REASON="neither /sitemap.xml nor /sitemap-index.xml is served"; return 1; }
   if grep -qi 'home-server' <<<"$sitemap"; then REASON="the sitemap points at the staging address (home-server)"; return 1; fi
   css="$(site_get /env.css 2>/dev/null)" || css=""
   if grep -q 'display: *block' <<<"$css"; then REASON="/env.css reveals the staging-only elements (Preview ribbon, test-order notice)"; return 1; fi

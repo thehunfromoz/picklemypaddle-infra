@@ -110,7 +110,7 @@ The first `vX.Y.Z` that goes to production is the launch. Check these first:
    `Deploy vX.Y.Z to https://www.picklemypaddle.com ? [y/N]`. Open the compare link first.
 3. **What it checks** after starting the new release, through the real gateway and certificate:
    it becomes healthy; `/version.txt` is that release's commit; the home page has HSTS and a
-   Content-Security-Policy and does **not** say noindex; no page, `robots.txt` or sitemap mentions
+   Content-Security-Policy and does **not** say noindex; no page, `robots.txt` or sitemap (`/sitemap.xml`; `/sitemap-index.xml` for releases before SCRUM-36) mentions
    `home-server`; `robots.txt` doesn't block the site; `/env.css` doesn't reveal the staging-only
    elements.
 4. **If a check fails**, the previous release is put back automatically (on the very first
