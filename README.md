@@ -19,7 +19,7 @@ Planned contents (built under SCRUM-15/16/17/18):
   release tags. Setup and day-to-day: [runbooks/production-ovh-vps.md](runbooks/production-ovh-vps.md).
 - `runbooks/search-console-go-live.md` (SCRUM-36): the Google Search Console steps for launch day.
 - `.github/workflows/`: shared CI the component repos call (SCRUM-13/15), so a fix lands everywhere at once:
-  - `node-checks.yml`: install a pnpm/Node 22 project and run its checks (lint, type-check, tests…);
+  - `node-checks.yml`: install a pnpm/Node project (Node 22 unless `node-version` says otherwise) and run its checks (lint, type-check, tests…);
     each failure is summarised on the PR.
   - `secret-scan.yml`: gitleaks over the full history.
   - `image.yml`: build the Docker image, run the repo's container tests, Trivy scan. On merge to

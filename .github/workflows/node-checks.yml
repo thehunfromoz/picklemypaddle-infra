@@ -5,6 +5,7 @@
 #       with:
 #         scripts: lint check test:unit test:e2e   # pnpm scripts, run in order
 #         playwright: true                         # install Chromium first
+#         node-version: '22'                       # optional, defaults to 22
 # Each failing script is summarised as an annotation on the PR.
 name: Node checks
 
@@ -19,6 +20,10 @@ on:
         description: Install Playwright's Chromium before running the scripts
         type: boolean
         default: false
+      node-version:
+        description: Node version to run the scripts on (match the Dockerfile's base image)
+        type: string
+        default: '22'
       report-path:
         description: Folder to upload as an artifact if anything fails (e.g. playwright-report)
         type: string
@@ -36,7 +41,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ inputs.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - if: inputs.playwright
