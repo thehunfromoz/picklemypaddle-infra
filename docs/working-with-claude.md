@@ -29,13 +29,15 @@ SCRUM-21 security/privacy.
 - **Quiz before building:** every story gets acceptance criteria, tests and a Definition of
   Done (CI green, deployed to staging with a green `staging/home-server` tick, Attila's
   approval where the story says so) before work starts.
-- **Jira statuses (Claude moves tickets):** BACKLOG → To Do (approved) → Open (this sprint)
-  → In Progress → In Review (PR up) → QA (tests/checks running) → MERGE (green, waiting for
-  Attila) → Done (merged and acceptance checks verified). Assessment = parked for later.
-  Blocked = needs Attila; always say exactly what is needed. There is no Re-opened
-  transition: move a failed ticket back to In Progress with a comment.
-  Transition IDs: To Do 11, Open 17, In Progress 18, In Review 19, QA 20, Done 21,
-  MERGE 24, Blocked 3, Assessment 23.
+- **Jira statuses (Claude moves tickets):** the workflow is To Do → In Progress → Done. On
+  the Task tickets checked on 22 Oct 2026 (SCRUM-59 to 61) Jira offers only **Begin Work
+  (id 2)** and **Done (id 3)**. The longer ladder this guide used to list (Open, In Review,
+  QA, MERGE, Blocked, Assessment; ids 11 to 24) is not offered, and **id 3 is Done, not
+  Blocked**, so never reuse the old ids. List the ticket's transitions
+  (`getTransitionsForJiraIssue`) before moving it, and check a Story's the same way. Move a
+  ticket to In Progress when work starts. If it is waiting on Attila, or a check failed, leave
+  it In Progress and say so in a comment, with exactly what is needed. Move it to Done only
+  once the acceptance checks are verified and Attila has approved where the ticket says so.
 - **Before marking anything Blocked or Done, verify it** (CI results, commit statuses,
   `version.txt`). Don't assume.
 - **Only Attila merges to `main`.** Rulesets enforce PRs and passing checks on all repos.
@@ -44,7 +46,12 @@ SCRUM-21 security/privacy.
   `reset --soft` onto a shallow boundary (it once produced a parentless commit and an
   unrecoverable PR). Squash on a fresh branch from `origin/main`, and check
   `git rev-parse HEAD^` before force-pushing. After pushing a new branch, set its upstream
-  (`branch.<b>.remote/merge`) so the stop hook sees it as pushed.
+  so the stop hook sees it as pushed: the clone only fetches `main`, so first
+  `git config --add remote.origin.fetch '+refs/heads/<b>:refs/remotes/origin/<b>'`, then set
+  `branch.<b>.remote` and `branch.<b>.merge`.
+- **A PR that has fallen behind `main`** can be brought up to date without a local rebase:
+  `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch -f expected_head_sha=<sha>`
+  (it adds a merge commit and re-runs the checks; done on site #38, SCRUM-59).
 - **Commits** are authored `Attila Madarasz <attila.madarasz@mac.com>` and end with the
   session's `Co-Authored-By` / `Claude-Session` lines. PR descriptions end with the
   "Generated with Claude Code" line and the session link.
@@ -64,12 +71,21 @@ These need Attila, so give him exact click-paths or commands:
 - create or delete **tags/releases** (releases: GitHub → Releases → Draft new release);
 - change **repo settings / rulesets** (send importable ruleset JSON instead);
 - **delete branches**;
-- read some Actions/package APIs (logs, artifacts): make CI print failures as `::error`
-  annotations, then read them from the check-run annotations API;
-- reach the npm registry, so dependencies can't be installed in the session. To create or
-  refresh `pnpm-lock.yaml`, push a temporary workflow on the branch that runs
-  `pnpm install --lockfile-only`, commits the lockfile back and deletes itself; then
-  squash the branch.
+- read some Actions/package APIs (job logs and artifacts return 403): make CI print failures
+  as `::error` annotations, then read them from the check-run annotations API. Job
+  conclusions and check-runs are readable;
+- post comments that act on a bot, such as `@dependabot recreate` or `@dependabot rebase`:
+  comments made through the session's GitHub tool are altered and get a footer appended, so
+  the command doesn't work. Give Attila the exact text and the PR; he posts it as its own
+  comment;
+- run everything locally. As of 22 Oct 2026 the **npm registry is reachable** (pnpm installs,
+  and `npm i node@26` into a scratch folder gives a usable Node 26), so lockfiles can be
+  created and refreshed in the session with `pnpm install --lockfile-only`; the old
+  temporary-workflow trick is no longer needed. But there is **no Docker daemon**, and the
+  Playwright browser download and Docker Hub are not reachable, so `test:e2e`,
+  `check:lighthouse` and the image build and Trivy scan run only in CI. Lint, `check`,
+  `test:unit`, build, `check:secrets` and `check:links` do run in the session (site CI uses
+  Node 26; a session on Node 22 is close enough for these);
 - create PRs with `gh pr create` (no GraphQL): use
   `gh api repos/<owner>/<repo>/pulls -f title=… -f head=… -f base=main -F body=@file`.
 
@@ -93,8 +109,31 @@ through GitHub commit statuses, or Attila pastes command output.
   failures never failed a job). Failures surface as `::error` annotations. In infra CI the
   site smoke suite (`EXPECT_STAGING=1`, through the gateway) annotates its failing tests,
   which is the quickest way to see why home-server rolled back.
-- **Site `.trivyignore` expires 26 Oct 2026** (Go 1.26.9 / x/net 0.60.0 CVEs in the
-  `caddy:2-alpine` base). Remove it once a fixed Caddy is out, or re-review with Attila.
+- **Site `.trivyignore` expires 26 Oct 2026** (SCRUM-38, SCRUM-60). It accepts, for a limited
+  time, the HIGH findings in the `caddy:2-alpine` base image: the Go 1.26.9 / x/net 0.60.0 set
+  from 11 Oct and `CVE-2026-111943` (fixed in Go 1.26.10 / 1.27.3, 20 Oct). Remove it once a
+  Caddy release built with Go 1.26.10 or later is out, or re-review the expiry with Attila.
+  The site's `caddy-base-check.yml` scans the base image every Monday 08:30 Sydney time
+  (without the ignore file) and leaves a `caddy-base-clean` or `caddy-base-vulnerable`
+  annotation on the run; when it says clean, delete the `.trivyignore` block and that workflow
+  together. A weekly scheduled task watches for this and prepares the removal. Once that is
+  done, delete this bullet and the matching row in `as-built.md`.
+- **Dependabot and the 3-day gate (site, SCRUM-59).** The npm updater runs pnpm with a
+  3-day release-age gate over **every entry in `pnpm-lock.yaml`**, not just the version it is
+  bumping. If the lockfile pins anything published in the last 3 days, every run fails with
+  `ERR_PNPM_NO_MATCHING_VERSION` (and the PRs show "can't resolve your JavaScript dependency
+  files") until that version is 3 days old. This happened 21 to 22 Oct 2026 after the lockfile
+  was regenerated for `lighthouse`. Our own installs had no gate, so CI stayed green and the
+  problem was invisible there. The site's `pnpm-workspace.yaml` therefore sets
+  `minimumReleaseAge: 4320` (3 days), so a regenerated lockfile always passes. To use a newer
+  release sooner, add the package to `minimumReleaseAgeExclude`, knowing Dependabot can fail
+  for up to 3 days. If it does fail: find the lockfile entries inside the 3-day window by
+  comparing them with registry publish times, and move them to older versions the dependency
+  ranges allow (temporary `overrides`, regenerate, then remove the overrides), as in site PR
+  #38. Where Dependabot's 3-day default comes from is not confirmed. Attila checks the result
+  under Insights → Dependency graph → Dependabot → **Check for updates**. Dependabot rebases
+  its own PRs when `main` moves, so don't edit its branches; a PR that conflicts after a
+  sibling merges fixes itself within a minute or two.
 
 ## Staging (home-server, 192.168.1.24, Ubuntu)
 
