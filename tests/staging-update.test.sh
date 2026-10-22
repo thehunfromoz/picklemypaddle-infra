@@ -30,6 +30,28 @@ die() {
   out="$(docker ps -a --format '{{.Names}} {{.Status}}'
     docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" logs --tail 15 2>&1)"
   echo "$out" >&2
+  # The site container is the one that matters when a deploy or rollback goes wrong, and an
+  # annotation is cut at about 4 KB, so give it its own short one: its health-check history
+  # (exit code and output of the last probes) and the end of its log.
+  local sid diag eng
+  # Which Docker this is matters for image handling (classic store vs containerd store).
+  eng="$(docker info -f 'server={{.ServerVersion}} driver={{.Driver}} status={{.DriverStatus}}' 2>&1 | cut -c1-300
+    docker image ls -a --digests --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>&1 | grep -E 'pmp-test|REPOSITORY|<none>' | cut -c1-200 | head -n 12)"
+  echo "$eng" >&2
+  [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=docker ($1)::${eng//$'\n'/%0A}"
+  if [[ -s "$WORK/update.log" ]]; then
+    diag="$(tail -n 12 "$WORK/update.log" | cut -c1-240)"
+    echo "$diag" >&2
+    [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=updater log ($1)::${diag//$'\n'/%0A}"
+  fi
+  sid="$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" ps -aq site 2>/dev/null | head -n1 || true)"
+  if [[ -n "$sid" ]]; then
+    diag="$(docker inspect -f 'image={{.Config.Image}} started={{.State.StartedAt}} status={{.State.Status}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}} failing={{.State.Health.FailingStreak}}{{end}}' "$sid" 2>&1
+      docker inspect -f '{{if .State.Health}}{{range .State.Health.Log}}probe exit={{.ExitCode}} {{.End.Format "15:04:05"}} {{printf "%.120q" .Output}}{{"\n"}}{{end}}{{end}}' "$sid" 2>&1 | tail -n 4
+      docker logs --tail 8 "$sid" 2>&1 | cut -c1-200)"
+    echo "$diag" >&2
+    [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=site container ($1)::${diag//$'\n'/%0A}"
+  fi
   # Also as a GitHub annotation, so the failure is readable from the API.
   [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=$1::${out//$'\n'/%0A}"
   exit 1
@@ -44,12 +66,17 @@ trap cleanup EXIT
 trap 'die "unexpected failure at line $LINENO"' ERR
 
 publish() { # publish <version> <health-status> [no-smoke]
-  docker build -q -t "$IMG:staging" --build-arg VERSION="$1" --build-arg HEALTH="$2" \
+  # Build under a throwaway tag and move the registry's :staging tag from the registry side
+  # (imagetools). Building with -t :staging would untag the image the running container uses,
+  # which Docker 29's containerd image store then deletes (SCRUM-62); a publish to GHCR never
+  # touches home-server's own tags, and the updater's pull must be what moves them.
+  docker build -q -t "$IMG:build-$1" --build-arg VERSION="$1" --build-arg HEALTH="$2" \
     --label org.opencontainers.image.revision="rev-$1" \
     --label org.opencontainers.image.source=https://github.com/test/site \
     "$ROOT/tests/fixtures" >/dev/null
-  docker push -q "$IMG:staging" >/dev/null
-  docker rmi "$IMG:staging" >/dev/null # make the updater really pull it
+  docker push -q "$IMG:build-$1" >/dev/null
+  docker rmi "$IMG:build-$1" >/dev/null
+  docker buildx imagetools create -t "$IMG:staging" "$IMG:build-$1" >/dev/null
   if [[ "${3:-}" != no-smoke ]]; then
     docker build -q -t "$IMG-smoke:rev-$1" -f "$ROOT/tests/fixtures/smoke.Dockerfile" "$ROOT/tests/fixtures" >/dev/null
     docker push -q "$IMG-smoke:rev-$1" >/dev/null
@@ -62,7 +89,8 @@ status_of() {
     sed -E 's/^[^ ]+ Bearer test-token ([a-z]+) staging\/home-server \| /\1 | /'
 }
 served() { curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null || echo "(no answer)"; }
-update() { "$STACK_DIR/update.sh"; }
+# Keep the updater's own log too: on failure it says what it did (and where it stopped).
+update() { "$STACK_DIR/update.sh" 2>&1 | tee -a "$WORK/update.log"; }
 
 docker run -d --name pmp-test-registry -p 5000:5000 registry:2 >/dev/null
 echo "test-token" >"$GITHUB_STATUS_TOKEN_FILE"
