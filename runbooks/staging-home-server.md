@@ -284,8 +284,9 @@ GitHub App's callback URL and the editor image's `EDITOR_PORT` must change with 
    asks you to authorise *PickleMyPaddle Blog Editor*.
 2. `main` is protected, so first make a branch: tap the branch name at the top → **New
    branch** → a short name such as `my-post` (it becomes `blog/my-post`).
-3. **Blog (English)** → **Add**. Fill in the title (the web address is made from it), summary,
-   date, and the body. A cover image is optional; if you add one, its description (alt text)
+3. **Blog (English)** → **Add**. Fill in the title (the web address is made from it), a summary
+   of 70 to 160 characters (search results show it), the date, and the body; body headings
+   start at Heading 2, because the title is the page's main heading. A cover image is optional; if you add one, its description (alt text)
    is required, and the build fails without it. Tick **Draft** to save without publishing.
    **Create** (later edits: **Save**). Each save is a commit on your branch.
 4. When it's ready: branch menu → **Create pull request**. GitHub opens; tap **Create pull
@@ -307,7 +308,7 @@ then pull request and merge as above.
 | GitHub says "The redirect_uri is not associated with this application" | The App's **Callback URL** must be exactly the one in step 1. |
 | Sign-in loops back to the start, or "missing client ID" | Re-run `sudo ./staging/install.sh --set-editor-app`. |
 | Saving fails with a permissions or "protected branch" error | You're on `main`: make a branch first (step 2). If it's on a `blog/…` branch, check the App is installed on `picklemypaddle-site` with Contents: Read and write. |
-| The PR's checks fail on the post | Open the failing check's annotation: usually a missing cover description or a summary over 160 characters. Fix it in the editor on the same branch; the PR updates. |
+| The PR's checks fail on the post | Open the failing check's annotation. The usual causes: a summary outside 70 to 160 characters, a top-level (Heading 1) heading in the body (the title is the page's only one, so start at Heading 2), or a cover image without a description. The editor now refuses the first two while you write (site PR #43), but a post started before that, or edited by hand, can still have them. Fix it in the editor on the same branch; the PR updates. |
 | The editor shows an old version | It updates with the site; `sudo docker compose -p pmp-staging ps editor` shows its state. A failed editor image is rolled back like the site and reported as `staging/home-server/editor` on its commit. |
 
 ## Day to day
