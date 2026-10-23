@@ -12,6 +12,8 @@
 #         setup-node: true                          # install pnpm deps first (for the test script)
 #         extra-images: |                           # optional: local-tag=ghcr-name, pushed as :<sha>
 #           picklemypaddle-site-smoke:test=ghcr.io/thehunfromoz/picklemypaddle-site-smoke
+#         staging-extra-images: |                   # optional: same, but ALSO tagged :staging
+#           picklemypaddle-site-editor:test=ghcr.io/thehunfromoz/picklemypaddle-site-editor
 #
 # Every PR: build -> the repo's container tests -> Trivy (HIGH/CRITICAL fail).
 # Merge to main: also publish ghcr.io/<owner>/<repo>:staging and :<sha> (extra images
@@ -40,6 +42,13 @@ on:
         default: '22'
       extra-images:
         description: Lines of local-tag=ghcr-repository to publish as :<sha> alongside the main image
+        type: string
+        default: ''
+      staging-extra-images:
+        description: >-
+          Lines of local-tag=ghcr-repository to publish as :<sha> AND :staging, for extra services
+          home-server's updater keeps current (e.g. the staging-only blog editor, SCRUM-34). The
+          calling repo's container test builds and checks them; they are never released.
         type: string
         default: ''
       keep-sha-tags:
@@ -127,25 +136,33 @@ jobs:
         if: env.PUBLISH == 'true'
         env:
           EXTRA: ${{ inputs.extra-images }}
+          STAGING_EXTRA: ${{ inputs.staging-extra-images }}
           SHA: ${{ github.sha }}
         run: |
           # Each extra image must exist locally, push, and then be readable from GHCR;
           # otherwise fail with the reason (a silently skipped push once left
           # home-server without smoke tests for days, SCRUM-38).
-          while IFS='=' read -r src dest; do
-            [ -n "$src" ] || continue
-            if ! docker image inspect "$src" >/dev/null 2>&1; then
-              echo "::error title=publish::local image $src doesn't exist (the container test should build it)"; exit 1
+          push() { # push <local> <remote:tag>
+            if ! out="$(docker push -q "$2" 2>&1)"; then
+              echo "::error title=publish::pushing $2 failed: ${out//$'\n'/ }"; exit 1
             fi
-            docker tag "$src" "$dest:$SHA"
-            if ! out="$(docker push -q "$dest:$SHA" 2>&1)"; then
-              echo "::error title=publish::pushing $dest:$SHA failed: ${out//$'\n'/ }"; exit 1
+            if ! docker buildx imagetools inspect "$2" >/dev/null 2>&1; then
+              echo "::error title=publish::$2 was pushed but GHCR doesn't have it"; exit 1
             fi
-            if ! docker buildx imagetools inspect "$dest:$SHA" >/dev/null 2>&1; then
-              echo "::error title=publish::$dest:$SHA was pushed but GHCR doesn't have it"; exit 1
-            fi
-            echo "published $dest:$SHA"
-          done <<<"$EXTRA"
+            echo "published $2"
+          }
+          publish_extras() { # publish_extras <lines> <also-staging: yes|no>
+            while IFS='=' read -r src dest; do
+              [ -n "$src" ] || continue
+              if ! docker image inspect "$src" >/dev/null 2>&1; then
+                echo "::error title=publish::local image $src doesn't exist (the container test should build it)"; exit 1
+              fi
+              docker tag "$src" "$dest:$SHA"; push "$src" "$dest:$SHA"
+              if [ "$2" = yes ]; then docker tag "$src" "$dest:staging"; push "$src" "$dest:staging"; fi
+            done <<<"$1"
+          }
+          publish_extras "$EXTRA" no
+          publish_extras "$STAGING_EXTRA" yes
           docker tag "$LOCAL" "$REMOTE:$SHA"; docker push -q "$REMOTE:$SHA"
           docker tag "$LOCAL" "$REMOTE:staging"; docker push -q "$REMOTE:staging"
 
@@ -154,12 +171,14 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          EXTRA: ${{ inputs.extra-images }}
+          EXTRA: |
+            ${{ inputs.extra-images }}
+            ${{ inputs.staging-extra-images }}
           KEEP: ${{ inputs.keep-sha-tags }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER}"
           pkgs="${REMOTE##*/}"
-          while IFS='=' read -r _ remote; do [ -n "$remote" ] && pkgs="$pkgs ${remote##*/}"; done <<<"$EXTRA"
+          while IFS='=' read -r _ remote; do remote="${remote//[[:space:]]/}"; [ -n "$remote" ] && pkgs="$pkgs ${remote##*/}"; done <<<"$EXTRA"
           for pkg in $pkgs; do
             # Versions whose tags are ONLY 40-hex commit SHAs (never :staging, vX.Y.Z or untagged),
             # newest first; delete all but the newest $KEEP.
