@@ -2,7 +2,9 @@
 
 Jira: SCRUM-16. Staging lives at **http://home-server:8088** on the LAN and, for club demos,
 at **https://home-server.tail8bc7ae.ts.net:8443** on your tailnet (SCRUM-38, see
-[Club demos over Tailscale](#club-demos-over-tailscale-scrum-38)).
+[Club demos over Tailscale](#club-demos-over-tailscale-scrum-38)). The blog editor is only on
+the tailnet, at **https://home-server.tail8bc7ae.ts.net:8444/keystatic** (SCRUM-34, see
+[Blog editor over Tailscale](#blog-editor-over-tailscale-scrum-34)).
 
 ## How it works
 
@@ -11,6 +13,8 @@ GitHub (merge to main) ─► CI tests ─► GHCR  ghcr.io/thehunfromoz/picklem
                                              ▲ pulled every 2 min
 home-server ── pmp-staging-update.timer ─► update.sh ─► docker compose (project "pmp-staging")
                                                              gateway :8088 ─► site
+                                                                     │       └► integrations (/api/*)
+                                       (loopback only, for Tailscale) :8089 ─► editor (blog)
 ```
 
 - **Two services behind one address.** The gateway sends `/api/*` to the integrations service
@@ -45,9 +49,11 @@ for **each** of these: **Package settings** → **Change visibility** → **Publ
 - **picklemypaddle-site-smoke**: the site's smoke tests. While it's private, every deploy
   reports "smoke tests could not run".
 - **picklemypaddle-integrations**
+- **picklemypaddle-site-editor**: the blog editor (SCRUM-34). It appears after the first site
+  build that publishes it.
 
 (The repos are already public, so this exposes nothing new.) The infra CI job "Real site
-image runs behind the gateway" fails with a clear message until all three are public.
+image runs behind the gateway" fails with a clear message until all four are public.
 
 ### 2. Install on home-server
 
@@ -187,7 +193,8 @@ join your tailnet.
 sudo ./staging/install.sh --tailscale-off
 ```
 
-This removes only port 8443 from Tailscale Serve. The app on 443 and the LAN address
+This removes only staging's ports from Tailscale Serve: 8443 and the blog editor's 8444
+(SCRUM-34), so the editor is then unreachable. The app on 443 and the LAN address
 http://home-server:8088 keep working, and the GitHub links go back to the LAN address.
 To shut out a single lost device instead, remove it in the admin console → **Machines**.
 
@@ -203,6 +210,105 @@ To shut out a single lost device instead, remove it in the admin console → **M
 Good to know: certificates are public records, so the name `home-server.tail8bc7ae.ts.net`
 is visible in certificate-transparency logs (it already was, because of the app on 443).
 The name only resolves to a tailnet address that nobody outside your tailnet can connect to.
+
+## Blog editor over Tailscale (SCRUM-34)
+
+Write and edit blog posts in a browser on any of your tailnet devices, phone included, at
+**https://home-server.tail8bc7ae.ts.net:8444/keystatic**. It is Keystatic, signed in with
+GitHub: posts are saved straight into `picklemypaddle-site` on a `blog/…` branch, and you
+publish by merging the pull request, so CI and branch protection apply as for any change.
+
+How it's kept private:
+
+- **Tailscale only.** The gateway serves the editor on a second listener that is published on
+  `127.0.0.1:8089` only, and Tailscale Serve forwards `:8444` there. The LAN address
+  (`http://home-server:8088/keystatic`) answers 404, and nothing else on the network can
+  reach port 8089.
+- **Staging only.** The editor is its own image, `picklemypaddle-site-editor`, built from the
+  site repo's `Dockerfile.editor`. The public site image never contains it (site CI fails if
+  it answers `/keystatic`), and the production stack has no editor service (infra CI fails if
+  `production/` mentions it).
+- **GitHub decides who can edit.** Sign-in is through a GitHub App installed only on
+  `picklemypaddle-site`; it can only do what your own GitHub account can do there.
+- **Secrets stay on home-server:** the App's client ID and secret and the editor's cookie key
+  live only in `/etc/picklemypaddle/editor.env` (root, 600).
+
+### Set it up (once)
+
+**1. Create the GitHub App** (on github.com, signed in as thehunfromoz):
+your profile picture → **Settings** → **Developer settings** (bottom of the left menu) →
+**GitHub Apps** → **New GitHub App**, then fill in:
+
+| Field | Value |
+| --- | --- |
+| GitHub App name | `PickleMyPaddle Blog Editor` (its URL name becomes `picklemypaddle-blog-editor`; if GitHub says the name is taken, pick another and tell Claude the URL name, since the editor image shows it in one link) |
+| Homepage URL | `https://github.com/thehunfromoz/picklemypaddle-site` |
+| Callback URL | `https://home-server.tail8bc7ae.ts.net:8444/api/keystatic/github/oauth/callback` |
+| Expire user authorization tokens | ticked (the default) |
+| Request user authorization (OAuth) during installation | not ticked |
+| Webhook → Active | **not** ticked (the editor doesn't use webhooks) |
+| Repository permissions | **Contents: Read and write**, **Pull requests: Read and write** (Metadata: Read-only is added automatically). Nothing else. |
+| Where can this GitHub App be installed? | **Only on this account** |
+
+Then **Create GitHub App**. On the App's page:
+
+- copy the **Client ID** (starts with `Iv`);
+- **Generate a new client secret** and copy it (it's shown once). You don't need a private key.
+- left menu → **Install App** → **Install** next to thehunfromoz → **Only select
+  repositories** → `picklemypaddle-site` → **Install**.
+
+**2. Make the editor image public** (once, after the site PR with the editor is merged and
+CI has published it): profile → **Packages** → **picklemypaddle-site-editor** → **Package
+settings** → **Change visibility** → **Public**, as for the other packages in step 1 above.
+
+**3. On home-server:**
+
+```bash
+cd ~/picklemypaddle-infra && git pull
+sudo ./staging/install.sh                   # adds the editor and its secrets file; LAN check: /keystatic is 404
+sudo ./staging/install.sh --set-editor-app  # paste the Client ID, then the secret (hidden)
+sudo ./staging/install.sh --tailscale       # adds https://…:8444 for the editor (8443 is unchanged)
+```
+
+`--set-editor-app` saves the two values in `/etc/picklemypaddle/editor.env`, restarts the
+editor and checks it now sends sign-in to GitHub with your App. `--tailscale` refuses to
+change anything if port 8444 is taken or has Funnel on, and undoes its own change if anything
+else in Serve moved, exactly as for 8443. The editor's ports are `TAILSCALE_EDITOR_HTTPS_PORT`
+and `EDITOR_LOCAL_PORT` in `/opt/picklemypaddle/staging/.env`; if you ever change 8444, the
+GitHub App's callback URL and the editor image's `EDITOR_PORT` must change with it.
+
+### Write and publish a post (phone or laptop)
+
+1. Tailscale **on**. Open **https://home-server.tail8bc7ae.ts.net:8444/keystatic** (Share →
+   **Add to Home Screen** for a one-tap icon). **Sign in with GitHub**; the first time, GitHub
+   asks you to authorise *PickleMyPaddle Blog Editor*.
+2. `main` is protected, so first make a branch: tap the branch name at the top → **New
+   branch** → a short name such as `my-post` (it becomes `blog/my-post`).
+3. **Blog (English)** → **Add**. Fill in the title (the web address is made from it), summary,
+   date, and the body. A cover image is optional; if you add one, its description (alt text)
+   is required, and the build fails without it. Tick **Draft** to save without publishing.
+   **Create** (later edits: **Save**). Each save is a commit on your branch.
+4. When it's ready: branch menu → **Create pull request**. GitHub opens; tap **Create pull
+   request**. CI checks the post (schema, links, accessibility, the built pages).
+5. When the checks are green, **Merge** (GitHub app or web). Within about 10 minutes
+   home-server deploys it: the post is at `https://home-server.tail8bc7ae.ts.net:8443/blog/<web-address>`
+   and the merge commit gets a green `staging/home-server` ✓. It reaches the live site with the
+   next release.
+6. On the merged PR, **Delete branch** (Claude can't delete branches).
+
+To take a post down, open it in the editor on a new branch and tick **Draft** (or **Delete**),
+then pull request and merge as above.
+
+### If something's wrong
+
+| Symptom | Fix |
+| --- | --- |
+| `…:8444` doesn't load, `…:8443` does | The editor port isn't served: `sudo ./staging/install.sh --tailscale`. Check: `tailscale serve status` lists `:8444 → 127.0.0.1:8089`. |
+| GitHub says "The redirect_uri is not associated with this application" | The App's **Callback URL** must be exactly the one in step 1. |
+| Sign-in loops back to the start, or "missing client ID" | Re-run `sudo ./staging/install.sh --set-editor-app`. |
+| Saving fails with a permissions or "protected branch" error | You're on `main`: make a branch first (step 2). If it's on a `blog/…` branch, check the App is installed on `picklemypaddle-site` with Contents: Read and write. |
+| The PR's checks fail on the post | Open the failing check's annotation: usually a missing cover description or a summary over 160 characters. Fix it in the editor on the same branch; the PR updates. |
+| The editor shows an old version | It updates with the site; `sudo docker compose -p pmp-staging ps editor` shows its state. A failed editor image is rolled back like the site and reported as `staging/home-server/editor` on its commit. |
 
 ## Day to day
 
@@ -260,6 +366,24 @@ sudo docker compose -p pmp-staging down
 sudo rm /etc/systemd/system/pmp-staging-update.{service,timer} && sudo systemctl daemon-reload
 sudo rm -r /opt/picklemypaddle/staging /var/lib/pmp-staging
 ```
+
+## Acceptance checks (SCRUM-34)
+
+1. **CI (site):** the content schema and language folders are unit-tested; Playwright checks
+   `/blog`, `/blog/<slug>` and `/rss.xml`, and that `/keystatic` is a 404; the container test
+   proves the public image has no `/keystatic` and no Keystatic code, and that the editor image
+   starts and sends sign-in back to the Tailscale address.
+2. **CI (infra):** the editor runs in the staging stack behind the gateway, on the loopback
+   listener only, and the LAN listener 404s its paths; the updater test deploys a stand-in
+   editor under its own status name; `--tailscale` adds and removes :8444 without touching
+   anything else; `production/` has no editor.
+3. **On home-server:** `install.sh` ends with "the LAN address doesn't serve the blog editor";
+   `--set-editor-app` ends with "sends sign-in to GitHub with this app"; `tailscale serve
+   status` shows `:8443` and `:8444`, no Funnel, the 443 app unchanged.
+4. **From the phone, over Tailscale:** write a test post, open a PR from the editor, merge it,
+   and see it on staging with a green `staging/home-server` ✓.
+5. **Private:** with Tailscale off, `…:8444` doesn't connect; on the LAN,
+   `http://home-server:8088/keystatic` is 404.
 
 ## Acceptance checks (SCRUM-38)
 

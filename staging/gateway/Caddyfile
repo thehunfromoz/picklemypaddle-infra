@@ -9,6 +9,10 @@
 #     so the live site never shows them.
 # The same gateway answers on the LAN (http://home-server:8088) and through
 # Tailscale Serve (https://home-server.<tailnet>.ts.net:8443).
+#
+# The blog editor (SCRUM-34) has its own listener, :8081, which compose publishes on
+# 127.0.0.1 only, for Tailscale Serve (https://home-server.<tailnet>.ts.net:8444).
+# The LAN listener (:80) answers 404 for the editor's paths.
 {
 	admin off
 	auto_https off
@@ -41,6 +45,15 @@
 		respond * "@layer base { [data-env=\"staging-only\"][hidden] { display: block !important; } }" 200
 	}
 
+	# Never the blog editor on this listener (SCRUM-34): it is Tailscale-only, on :8081.
+	# (Path handles sort by specificity, so these win over /api/* below.)
+	handle /keystatic* {
+		respond "Not found" 404
+	}
+	handle /api/keystatic* {
+		respond "Not found" 404
+	}
+
 	# The integrations service (orders, CRM, payments). If it is down, only /api fails.
 	handle /api/* {
 		reverse_proxy integrations:8080
@@ -51,6 +64,39 @@
 	}
 
 	header -Server
+	log {
+		output stdout
+		format console
+	}
+}
+
+# The blog editor (Keystatic, SCRUM-34). Reachable only from this machine (127.0.0.1, see
+# compose.staging.yml), which means only through Tailscale Serve:
+#   https://home-server.<tailnet>.ts.net:8444 → 127.0.0.1:8089 → here → editor:4321
+:8081 {
+	header X-Robots-Tag "noindex, nofollow"
+
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		reverse_proxy editor:4321 {
+			# Tailscale Serve terminates HTTPS, so tell the editor its real address: Keystatic
+			# builds the GitHub sign-in return URL from these, and Astro trusts them only for
+			# the configured host (astro.editor.config.mjs in the site repo).
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {$EDITOR_PUBLIC_HOST}
+			header_up X-Forwarded-Port {$EDITOR_PUBLIC_PORT}
+		}
+	}
+
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
 	log {
 		output stdout
 		format console

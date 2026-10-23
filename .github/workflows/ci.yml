@@ -43,11 +43,21 @@ jobs:
       - name: Compose file is valid
         run: |
           cp staging/.env.example staging/.env
-          touch /tmp/integrations.env
+          touch /tmp/integrations.env /tmp/editor.env
           sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          sed -i 's|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=/tmp/editor.env|' staging/.env
           docker compose -f staging/compose.staging.yml --project-directory staging config -q
           # Updater targets: exactly the labelled services
-          test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "integrations site"
+          test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "editor integrations site"
+          # SCRUM-34: the editor's gateway listener is published on loopback only, never on the LAN.
+          ports="$(docker compose -f staging/compose.staging.yml --project-directory staging config --format json | jq -c '[.services.gateway.ports[] | select(.target == 8081)]')"
+          if [ "$(jq -r '.[0].host_ip' <<<"$ports")" != 127.0.0.1 ] || [ "$(jq length <<<"$ports")" != 1 ]; then
+            echo "::error::the editor listener (gateway :8081) must be published on 127.0.0.1 only: $ports"; exit 1
+          fi
+          # The production stack never has the editor.
+          if grep -rqiE 'keystatic|site-editor|editor\.env' production; then
+            echo "::error::production/ must not run the blog editor (SCRUM-34)"; exit 1
+          fi
       # SCRUM-19. Kept in this job so the required check names don't change.
       - name: Production compose file and gateway Caddyfile are valid
         run: |
@@ -108,6 +118,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Pull :staging images anonymously (as home-server will)
         run: |
+          docker pull ghcr.io/thehunfromoz/picklemypaddle-site-editor:staging || {
+            echo "::error::Can't pull the blog editor image without logging in. Merge picklemypaddle-site #41 first, then make the picklemypaddle-site-editor GHCR package public."; exit 1; }
           docker pull ghcr.io/thehunfromoz/picklemypaddle-integrations:staging || {
             echo "::error::Can't pull the integrations image without logging in. Merge picklemypaddle-integrations #1 first, and make sure the GHCR package is public."; exit 1; }
           if ! docker pull ghcr.io/thehunfromoz/picklemypaddle-site:staging; then
@@ -120,6 +132,10 @@ jobs:
           sed -i 's/^STAGING_BIND=.*/STAGING_BIND=127.0.0.1/' staging/.env
           touch /tmp/integrations.env
           sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          # Dummy GitHub App values: enough to start the editor and check its sign-in redirect.
+          printf 'KEYSTATIC_GITHUB_CLIENT_ID=Iv1.citestclient\nKEYSTATIC_GITHUB_CLIENT_SECRET=%s\nKEYSTATIC_SECRET=%s\n' \
+            "$(openssl rand -hex 20)" "$(openssl rand -hex 32)" >/tmp/editor.env
+          sed -i 's|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=/tmp/editor.env|' staging/.env
           docker compose -f staging/compose.staging.yml --project-directory staging up -d --wait --wait-timeout 120
       - name: Site answers through the gateway with its security headers
         run: |
@@ -141,6 +157,31 @@ jobs:
           out="$(curl -fsS http://127.0.0.1:8088/api/status)"
           echo "$out"
           grep -q '"env":"staging"' <<<"$out"
+      - name: Blog editor is behind the gateway on loopback only, never on the LAN listener (SCRUM-34)
+        run: |
+          # The LAN listener refuses the editor's paths.
+          for path in /keystatic /keystatic/ /api/keystatic/github/login; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8088$path")"
+            [ "$code" = 404 ] || { echo "::error::LAN listener answers $path with $code (expected 404)"; exit 1; }
+          done
+          # The loopback listener (Tailscale Serve's target) serves the editor ...
+          # (Keystatic's page has no <html> tag; its app bundle is called keystatic-page.)
+          page="$(curl -fsS http://127.0.0.1:8089/keystatic || true)"
+          if ! grep -q 'keystatic-page' <<<"$page"; then
+            echo "::error::the editor isn't served on 127.0.0.1:8089/keystatic"; exit 1
+          fi
+          headers="$(curl -fsSI http://127.0.0.1:8089/keystatic)"
+          grep -qi '^x-robots-tag: noindex' <<<"$headers" || { echo "::error::editor pages aren't noindex"; exit 1; }
+          if grep -qi '^server:' <<<"$headers"; then echo "::error::editor listener leaks a Server header"; exit 1; fi
+          # ... and GitHub sign-in returns to the Tailscale HTTPS address the GitHub App expects.
+          login="$(curl -s -o /dev/null -D - http://127.0.0.1:8089/api/keystatic/github/login)"
+          want='redirect_uri=https%3A%2F%2Fhome-server.tail8bc7ae.ts.net%3A8444%2Fapi%2Fkeystatic%2Fgithub%2Foauth%2Fcallback'
+          grep -qi "^location: https://github.com/login/oauth/authorize?client_id=Iv1.citestclient&$want" <<<"$login" || {
+            echo "::error::sign-in doesn't return to the Tailscale address: $(grep -i '^location' <<<"$login" | tr -d '\r')"; exit 1; }
+          # Nothing on the LAN interface: the port isn't bound to 0.0.0.0.
+          if ss -ltnH 'sport = :8089' | grep -qv '127.0.0.1:8089'; then
+            echo "::error::port 8089 is listening beyond loopback: $(ss -ltnH 'sport = :8089')"; exit 1
+          fi
       - name: That build's own smoke tests pass against the stack (SCRUM-17)
         run: |
           rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/thehunfromoz/picklemypaddle-site:staging)

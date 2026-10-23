@@ -61,6 +61,19 @@ for name, svc in json.load(sys.stdin)["services"].items():
         print(name)'
 }
 
+# The GitHub status name for a service: its com.picklemypaddle.status-context label, or
+# STATUS_CONTEXT. The editor is built from the site repo, so the same commit gets both a site
+# and an editor result; separate names keep one from overwriting the other (SCRUM-34).
+status_context_of() {
+  compose config --format json | python3 -c '
+import json, sys
+svc = json.load(sys.stdin)["services"][sys.argv[1]]
+labels = svc.get("labels") or {}
+if isinstance(labels, list):
+    labels = dict(l.split("=", 1) for l in labels)
+print(labels.get("com.picklemypaddle.status-context") or sys.argv[2])' "$1" "$STATUS_CONTEXT"
+}
+
 container_of() { compose ps -q "$1" 2>/dev/null | head -n1; }
 
 # Wait for a service's container to report healthy. Returns 1 on unhealthy/timeout.
@@ -98,7 +111,7 @@ report() { # report <image-id> <pending|success|failure|error> <description>
     return 0
   fi
   body="$(python3 -c 'import json,sys; print(json.dumps({"state":sys.argv[1],"description":sys.argv[2][:140],"context":sys.argv[3],"target_url":sys.argv[4]}))' \
-    "$state" "$desc" "$STATUS_CONTEXT" "$STAGING_PUBLIC_URL")"
+    "$state" "$desc" "${SERVICE_CONTEXT:-$STATUS_CONTEXT}" "$STAGING_PUBLIC_URL")"
   # The token goes to curl on stdin, so it never appears in the process list.
   if ! printf 'header = "Authorization: Bearer %s"\n' "$(tr -d '[:space:]' <"$GITHUB_STATUS_TOKEN_FILE")" |
     curl -fsS --config - --max-time 20 -o /dev/null -X POST \
@@ -172,6 +185,7 @@ update_service() {
   fi
 
   log "$svc: deploying $(short "$new_id") (was $(short "${running_id:-none}"))"
+  SERVICE_CONTEXT="$(status_context_of "$svc")"
   report "$new_id" pending "Deploying to home-server staging"
   compose up -d --no-deps --pull never "$svc" >/dev/null 2>&1 || true
 

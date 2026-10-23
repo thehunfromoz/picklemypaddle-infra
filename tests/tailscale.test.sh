@@ -11,6 +11,7 @@
 #   7. a Serve change that moves anything else is undone
 #   8. turning it off removes only staging's port and restores .env
 #   9. turning it off refuses to remove a port staging doesn't own
+#  10. the blog editor's port (SCRUM-34) taken by something else: refused before any change
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,6 +19,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 HOST="home-server.tail8bc7ae.ts.net"
 TS_URL="https://$HOST:8443"
+ED_URL="https://$HOST:8444"
 
 pass() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 die() { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; [[ -f "$WORK/out" ]] && sed 's/^/    | /' "$WORK/out" >&2; exit 1; }
@@ -69,7 +71,8 @@ url = [a for a in args if a.startswith("http")][-1]
 origin = next((args[i + 1][8:] for i, a in enumerate(args) if a == "-H" and args[i + 1].startswith("Origin: ")), None)
 if url.startswith("https://"):
     cfg = json.load(open(f"{d}/serve.json")) if os.path.exists(f"{d}/serve.json") else {}
-    if "8443" not in cfg.get("TCP", {}):
+    port = url.split("/")[2].rsplit(":", 1)[1]
+    if port not in cfg.get("TCP", {}):
         sys.exit(7)
 path = "/" + url.split("/", 3)[3] if url.count("/") >= 3 else "/"
 if "-D" in args:
@@ -117,11 +120,14 @@ run --tailscale || die "1. --tailscale failed"
 other_app_untouched || die "1. the :443 app changed"
 grep -q '"8443": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8443 not served over HTTPS"
 grep -q "\"$HOST:8443\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8088\"}}}" "$WORK/serve.json" || die "1. :8443 doesn't point at staging"
+grep -q '"8444": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8444 (editor) not served over HTTPS"
+grep -q "\"$HOST:8444\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8089\"}}}" "$WORK/serve.json" || die "1. :8444 doesn't point at the editor's loopback listener"
+grep -q "blog editor answers at $ED_URL/keystatic" "$WORK/out" || die "1. editor not confirmed over Tailscale"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "$TS_URL" ]] || die "1. STAGING_PUBLIC_URL not switched"
 [[ "$(env_val STAGING_SITE_ORIGINS)" == "http://home-server:8088,$TS_URL" ]] || die "1. origins: $(env_val STAGING_SITE_ORIGINS)"
 grep -q "up -d --pull never --no-deps integrations" "$WORK/docker.log" || die "1. integrations not restarted"
 grep -q "/api accepts calls from $TS_URL" "$WORK/out" || die "1. CORS not confirmed"
-pass "1. serves $TS_URL → staging, :443 untouched, .env updated, integrations restarted"
+pass "1. serves $TS_URL → staging and $ED_URL → editor (loopback), :443 untouched, .env updated, integrations restarted"
 
 # 2 ── again
 before="$(cat "$WORK/serve.json")"; env_before="$(cat "$STACK_DIR/.env")"
@@ -170,6 +176,7 @@ reset "$OTHER_APP"; run --tailscale
 run --tailscale-off || die "8. --tailscale-off failed"
 other_app_untouched || die "8. the :443 app changed"
 ! grep -q '"8443"' "$WORK/serve.json" || die "8. :8443 still served"
+! grep -q '"8444"' "$WORK/serve.json" || die "8. :8444 (editor) still served"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "http://home-server:8088" ]] || die "8. STAGING_PUBLIC_URL not restored"
 [[ "$(env_val STAGING_SITE_ORIGINS)" == "http://home-server:8088" ]] || die "8. origins: $(env_val STAGING_SITE_ORIGINS)"
 run --tailscale-off || die "8. second --tailscale-off failed"
@@ -181,3 +188,12 @@ reset "$taken"
 ! run --tailscale-off || die "9. removed a port staging doesn't own"
 [[ "$(cat "$WORK/serve.json")" == "$taken" ]] || die "9. changed Serve"
 pass "9. turning it off leaves a port it doesn't own alone"
+
+# 10 ── the editor's port is someone else's: refused before staging's port is touched
+ed_taken="{\"TCP\":{\"8444\":{\"HTTPS\":true}},\"Web\":{\"$HOST:8444\":{\"Handlers\":{\"/\":{\"Proxy\":\"http://127.0.0.1:9999\"}}}}}"
+reset "$ed_taken"
+! run --tailscale || die "10. accepted an editor port in use"
+grep -q "already served by Tailscale" "$WORK/out" || die "10. unclear message"
+[[ "$(cat "$WORK/serve.json")" == "$ed_taken" ]] || die "10. changed Serve (staging's port must not be added first)"
+[[ "$(env_val STAGING_PUBLIC_URL)" == "http://home-server:8088" ]] || die "10. .env changed"
+pass "10. refuses an editor port already in use, before changing anything"
