@@ -34,7 +34,9 @@ SCRUM-21 security/privacy.
   (id 2)** and **Done (id 3)**. The longer ladder this guide used to list (Open, In Review,
   QA, MERGE, Blocked, Assessment; ids 11 to 24) is not offered, and **id 3 is Done, not
   Blocked**, so never reuse the old ids. List the ticket's transitions
-  (`getTransitionsForJiraIssue`) before moving it, and check a Story's the same way. Move a
+  (`getTransitionsForJiraIssue`) before moving it, and check a Story's the same way: Stories
+  offer the full ladder, where **In Progress is 18 and Done is 21, while 3 is BLOCKED and 2 is
+  CLOSED** (SCRUM-34, 23 Oct 2026), so the Task ids mean something else there. Move a
   ticket to In Progress when work starts. If it is waiting on Attila, or a check failed, leave
   it In Progress and say so in a comment, with exactly what is needed. Move it to Done only
   once the acceptance checks are verified and Attila has approved where the ticket says so.
