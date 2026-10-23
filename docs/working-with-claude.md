@@ -139,6 +139,18 @@ through GitHub commit statuses, or Attila pastes command output.
 
 - http://home-server:8088: the gateway routes `/api/*` to integrations, everything else to
   the site. `/version.txt` shows the live site commit.
+- **Blog editor (SCRUM-34):** Keystatic, staging only, Tailscale only:
+  `https://home-server.tail8bc7ae.ts.net:8444/keystatic` → Tailscale Serve → the gateway's
+  second listener (`:8081`, published on `127.0.0.1:8089` only) → `editor:4321`. The LAN
+  listener 404s `/keystatic*` and `/api/keystatic*`. Its image (`picklemypaddle-site-editor`)
+  is built from the site's `Dockerfile.editor` + `astro.editor.config.mjs`; the public build
+  (`astro.config.mjs`) and the production stack never include it, and CI checks both. Posts
+  are saved on `blog/…` branches and published by PR. Its GitHub status is
+  `staging/home-server/editor` (a service's `com.picklemypaddle.status-context` label), so it
+  never overwrites the site's `staging/home-server`. Shared `image.yml` publishes it through
+  `staging-extra-images` (`:<sha>` and `:staging`). If the tailnet name or port 8444 changes,
+  the GitHub App callback URL, `EDITOR_HOST`/`EDITOR_PORT` in `Dockerfile.editor` and the
+  staging `.env` must change together.
 - A pull-based updater (systemd timer, 2 min) deploys, health-checks, runs the smoke tests
   and rolls back on failure. It posts the result as a `staging/home-server` commit status.
   Full detail is in `runbooks/staging-home-server.md`.
@@ -200,5 +212,6 @@ through GitHub commit statuses, or Attila pastes command output.
   scripts or third-party origins.
 - Website choices: self-hosted Umami analytics; gallery from Attila's own re-grits (shown
   from 3 pairs); testimonials with permission (shown from 3); Keystatic on staging behind
-  Tailscale, with posts in `src/content/blog/<lang>/`.
+  Tailscale, with posts in `src/content/blog/<lang>/` (English at `/blog/<slug>`, other
+  languages at `/<lang>/blog/<slug>`; languages listed in the site's `src/config/i18n.ts`).
 - Agents draft and Attila approves; nothing is sent or paid automatically.

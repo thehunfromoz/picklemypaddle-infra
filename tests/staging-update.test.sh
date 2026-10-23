@@ -11,6 +11,8 @@
 #   5. nothing changes when there is no new image
 #   6. healthy image whose smoke tests fail is rolled back (SCRUM-17)
 #   7. image without a smoke-test image stays live, status "error"
+#   8. the blog editor (SCRUM-34) deploys with its own status name, only on the loopback
+#      listener; the LAN listener answers 404 for its paths
 # Every deploy's outcome is checked as a commit status on a fake GitHub API.
 set -euo pipefail
 
@@ -19,6 +21,7 @@ WORK="$(mktemp -d)"
 REG="localhost:5000"
 IMG="$REG/pmp-test/site"
 PORT=18088
+EDITOR_PORT=18089
 STATUSES="$WORK/statuses.log"
 export STACK_DIR="$WORK/stack" STATE_DIR="$WORK/state" HEALTH_TIMEOUT=60
 export GITHUB_API="http://127.0.0.1:9999" GITHUB_STATUS_TOKEN_FILE="$WORK/token"
@@ -85,7 +88,7 @@ publish() { # publish <version> <health-status> [no-smoke]
 }
 # Last status posted for a commit, as "<state> | <description>".
 status_of() {
-  grep "^/repos/test/site/statuses/rev-$1 " "$STATUSES" | tail -n1 |
+  grep "^/repos/test/site/statuses/rev-$1 [^ ]* [^ ]* [a-z]* staging/home-server | " "$STATUSES" | tail -n1 |
     sed -E 's/^[^ ]+ Bearer test-token ([a-z]+) staging\/home-server \| /\1 | /'
 }
 served() { curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null || echo "(no answer)"; }
@@ -104,6 +107,16 @@ docker build -q -t "$REG/pmp-test/integrations:staging" --build-arg VERSION=INT 
   "$ROOT/tests/fixtures" >/dev/null
 docker push -q "$REG/pmp-test/integrations:staging" >/dev/null
 docker rmi "$REG/pmp-test/integrations:staging" >/dev/null
+# Stand-in blog editor (SCRUM-34): built from the site repo, so the same source as the site.
+: >"$WORK/editor.env"
+publish_editor() { # publish_editor <version>
+  docker build -q -t "$REG/pmp-test/site-editor:staging" --build-arg VERSION="EDITOR-$1" --build-arg HEALTH=200 --build-arg LISTEN=4321 --build-arg STATE_PREFIX=/tmp/ \
+    --label org.opencontainers.image.revision="rev-$1" --label org.opencontainers.image.source=https://github.com/test/site \
+    "$ROOT/tests/fixtures" >/dev/null
+  docker push -q "$REG/pmp-test/site-editor:staging" >/dev/null
+  docker rmi "$REG/pmp-test/site-editor:staging" >/dev/null
+}
+publish_editor ED1
 mkdir -p "$STACK_DIR/gateway"
 cp "$ROOT/staging/compose.staging.yml" "$ROOT/staging/update.sh" "$STACK_DIR/"
 cp "$ROOT/staging/gateway/Caddyfile" "$STACK_DIR/gateway/"
@@ -112,6 +125,9 @@ sed -e "s|^STAGING_PORT=.*|STAGING_PORT=$PORT|" \
     -e "s|^SITE_IMAGE=.*|SITE_IMAGE=$IMG:staging|" \
     -e "s|^INTEGRATIONS_IMAGE=.*|INTEGRATIONS_IMAGE=$REG/pmp-test/integrations:staging|" \
     -e "s|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=$WORK/integrations.env|" \
+    -e "s|^EDITOR_IMAGE=.*|EDITOR_IMAGE=$REG/pmp-test/site-editor:staging|" \
+    -e "s|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=$WORK/editor.env|" \
+    -e "s|^EDITOR_LOCAL_PORT=.*|EDITOR_LOCAL_PORT=$EDITOR_PORT|" \
     -e "s|^HEALTH_TIMEOUT=.*|HEALTH_TIMEOUT=60|" \
     "$ROOT/staging/.env.example" >"$STACK_DIR/.env"
 sleep 2
@@ -168,5 +184,22 @@ update || die "a missing smoke image should not fail the deploy"
 [[ "$(served)" == "version C" ]] || die "expected version C, got: $(served)"
 [[ "$(status_of C)" == "error | Live on staging, but smoke tests could not run"* ]] || die "wrong status: $(status_of C)"
 pass "7. missing smoke image: C stays live, GitHub gets error"
+
+# 8 ── the blog editor (SCRUM-34)
+publish_editor ED2
+update || die "editor update should succeed"
+[[ "$(curl -fsS "http://127.0.0.1:$EDITOR_PORT/keystatic")" == "version EDITOR-ED2" ]] ||
+  die "editor not served on the loopback listener: $(curl -sS "http://127.0.0.1:$EDITOR_PORT/keystatic" 2>&1)"
+for path in /keystatic /keystatic/x /api/keystatic/github/login; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT$path")"
+  [[ "$code" == 404 ]] || die "LAN listener answers $path with $code (expected 404)"
+done
+grep -q "^/repos/test/site/statuses/rev-ED2 Bearer test-token success staging/home-server/editor | " "$STATUSES" ||
+  die "editor status not posted as staging/home-server/editor: $(grep rev-ED2 "$STATUSES" || echo none)"
+! grep -q "^/repos/test/site/statuses/rev-ED2 [^ ]* [^ ]* [a-z]* staging/home-server | " "$STATUSES" ||
+  die "editor posted under the site's status name"
+bound="$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" port gateway 8081)"
+[[ "$bound" == "127.0.0.1:$EDITOR_PORT" ]] || die "editor listener published on $bound, not loopback only"
+pass "8. editor deploys under its own status name, loopback only; the LAN listener 404s its paths"
 
 echo "All updater scenarios passed."
