@@ -21,7 +21,7 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 
 Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
 apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
-SCRUM-8 orders, SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+SCRUM-8 orders (stories 64–75, refined 26 Oct 2026), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -217,3 +217,38 @@ through GitHub commit statuses, or Attila pastes command output.
   Tailscale, with posts in `src/content/blog/<lang>/` (English at `/blog/<slug>`, other
   languages at `/<lang>/blog/<slug>`; languages listed in the site's `src/config/i18n.ts`).
 - Agents draft and Attila approves; nothing is sent or paid automatically.
+
+### Orders (SCRUM-8, decided 26 Oct 2026; detail in SCRUM-64 to 75)
+
+- **Order of record:** the integrations service's own **PostgreSQL**, one Postgres per app (each
+  Compose project its own; Umami v3 needs Postgres too). Photos are files on a private volume,
+  never in the database or behind a public URL. Backups are nightly `pg_dump` plus a photo copy,
+  kept **30 days** at most (off-site target: SCRUM-44).
+- **Admin is the master**, reachable only over Tailscale (the VPS joins the tailnet; Tailscale
+  Serve plus a `Tailscale-User-Login` check; never Funnel). **HubSpot is a one-way mirror**:
+  contact (no street address) and one deal per order, stage = status; edits made in HubSpot are
+  overwritten. Test portal only until near go-live; the production portal must be in the
+  Australian region (the privacy policy says so).
+- **Statuses:** Submitted → Questions → Accepted → Paid → In queue → Re-gritted → Posted back →
+  Completed, plus Rejected, Withdrawn, Lapsed. Paid is set by Stripe (SCRUM-9); staging has a
+  test-only "Mark paid (test)". Completed is automatic 10 days after Posted back; Lapsed after
+  30 days stalled in Questions (unpaid lapse: SCRUM-9).
+- **Emails** (Resend) at key moments only: Submitted, Accepted, In queue, Posted back, Rejected.
+  From sales@, Reply-To info@; questions to customers go by hand from info@. Attila's alert has
+  the reference and admin link only. Outside production: `[TEST]` subjects and an allow-list of
+  Attila's addresses (everything else suppressed).
+- **Status page:** minimal (no name, address, phone, email or photos); token in the URL
+  fragment, stored hashed; expires 90 days after Completed (30 days after Rejected or Lapsed).
+  "Email me my links" never reveals whether an address is known. References look like
+  `PMP-7K3QX`. "Back in the post by" = arrival + 10 NSW business days, plus queue position.
+- **Photos:** resized to 2560 px in the browser; HEIC left to iOS (not accepted); re-encoded
+  with all metadata stripped on the server; 10 MB per photo, 60 MB per request.
+- **Abuse:** honeypot, 3-second minimum fill time, 5 orders per IP per hour and 3 per email per
+  day (configurable per environment; production never relaxed for tests). No third-party
+  CAPTCHA (CSP).
+- **Retention:** a daily automatic job, with a 14-day heads-up and per-order extensions in
+  admin. Photos: 12 months after Completed. Rejected, Withdrawn and Lapsed orders: deleted
+  12 months later. Paid orders: 5 years. Erasure on request keeps only the tax minimum for paid
+  orders and permanently deletes the HubSpot contact. Gmail and Resend are covered by the
+  deletion runbook. SCRUM-75 must be Done before production takes real orders.
+- **Clubs** (batch tracking) are in SCRUM-10, not SCRUM-8.
