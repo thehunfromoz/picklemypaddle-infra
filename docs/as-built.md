@@ -175,7 +175,7 @@ Names only; never the values.
 
 | When | What |
 | --- | --- |
-| 26 Oct 2026 | Site `.trivyignore` expires: remove it once a fixed Caddy base image is out, or re-review |
+| 2 Nov 2026 | Site `.trivyignore` expires: remove it once a fixed Caddy base image is out, or re-review |
 | One week after production's first HTTPS | Raise HSTS from one day to one year ([runbook](../runbooks/production-ovh-vps.md)) |
 | Monthly | Re-run production `install.sh` to pick up Caddy updates |
 | End of Nov 2026 | ABN, then register `picklemypaddle.com.au` and redirect it |
