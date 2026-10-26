@@ -8,10 +8,15 @@
 #                 (Tailscale Serve → 127.0.0.1:${EDITOR_LOCAL_PORT}; published on loopback ONLY,
 #                  so the LAN can't reach it, and the LAN address answers 404 for /keystatic)
 #
+#   integrations ──► postgres   (SCRUM-64: the order database, on its own internal network that only
+#                                integrations joins; no published port; data on a named volume)
+#
 # Only the gateway publishes a port. Components sit on a private Docker network,
 # so nothing else on home-server (or its other containers) can collide with them.
 # Images are pulled from GHCR by update.sh; nothing here builds or runs repo code.
-# update.sh keeps every service labelled com.picklemypaddle.autoupdate=true current.
+# update.sh keeps every service labelled com.picklemypaddle.autoupdate=true current, and starts
+# services labelled com.picklemypaddle.dependency=true (postgres) first. Postgres is pinned to a major
+# version and, like the gateway, only changes when install.sh is re-run.
 name: pmp-staging
 
 services:
@@ -79,14 +84,61 @@ services:
       PORT: "8080"
       # Every address staging is opened from (CORS); install.sh --tailscale adds the tailnet one.
       PUBLIC_SITE_ORIGIN: ${STAGING_SITE_ORIGINS:-http://home-server:8088}
+      # SCRUM-67: X-Forwarded-For is believed only from the gateway (resolved on the network).
+      TRUSTED_PROXIES: gateway
+      # The smoke tests, Tailscale visitors and Attila's own tests all reach the service from the
+      # same Docker bridge address, so staging raises the per-IP limit. Production never does
+      # (the service refuses to start there with a relaxed limit).
+      ORDER_LIMIT_PER_IP_HOUR: ${STAGING_ORDER_LIMIT_PER_IP_HOUR:-60}
+    # DATABASE_URL (SCRUM-64) is in the secrets file; install.sh writes it.
     env_file:
       - path: ${INTEGRATIONS_ENV_FILE:-/etc/picklemypaddle/integrations.env}
         required: true
-    networks: [staging]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Processed paddle photos (SCRUM-66): private, never served by the gateway or the site.
+      - photos:/data/photos
+    networks: [staging, db]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+
+  # The order database (SCRUM-64). One Postgres per app, never shared. Reachable only from
+  # integrations (the db network is internal and nothing else joins it); no published port.
+  # The password is in a root-only file that install.sh creates; integrations gets the matching
+  # DATABASE_URL in its own secrets file.
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    labels:
+      com.picklemypaddle.dependency: "true"
+    environment:
+      POSTGRES_USER: pmp
+      POSTGRES_DB: pmp
+    env_file:
+      - path: ${POSTGRES_ENV_FILE:-/etc/picklemypaddle/postgres.env}
+        required: true
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql/18/... so the volume is mounted
+      # one level up (a major upgrade then sits beside the old data instead of on top of it).
+      - pgdata:/var/lib/postgresql
+    networks: [db]
+    read_only: true
+    tmpfs: [/var/run/postgresql, /tmp]
+    shm_size: 128m
+    cap_drop: [ALL]
+    # Only what the entrypoint needs to fix volume ownership and drop to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmp -d pmp -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Keystatic blog editor (SCRUM-34). STAGING ONLY: the production stack never has it, and the
   # public site image never contains it (it is a separate image built from the site repo's
@@ -120,3 +172,13 @@ services:
 networks:
   staging:
     name: pmp-staging
+  # The database's own network: internal (no route out), joined only by postgres and integrations.
+  db:
+    name: pmp-staging-db
+    internal: true
+
+volumes:
+  pgdata:
+    name: pmp-staging-pgdata
+  photos:
+    name: pmp-staging-photos
