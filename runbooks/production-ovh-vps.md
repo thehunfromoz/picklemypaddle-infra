@@ -16,6 +16,8 @@ GitHub (merge to main) ─► CI ─► GHCR :staging ─► home-server: tests 
                                                   roll back by itself if anything fails
 
 visitors ─► :80 / :443 ─► gateway (Caddy, automatic HTTPS) ─► site
+                                                     └── /api/* ─► 503 "ordering opens soon"
+                                                         (until switched on: ─► integrations ─► postgres)
 ```
 
 - **Nothing deploys itself.** There is no timer. You run `update.sh deploy vX.Y.Z` by hand; it
@@ -128,6 +130,91 @@ sudo /opt/picklemypaddle/production/update.sh rollback
 
 This redeploys the release that ran before the last successful deploy (through the same checks).
 `update.sh status` names it as the "rollback target".
+
+## Orders: off until you switch them on (SCRUM-64, SCRUM-68)
+
+Production must not take orders before SCRUM-8 and the security epic SCRUM-21 are signed off,
+and SCRUM-75 (retention) is Done. Until then:
+
+- the gateway answers every `/api/*` request with **503** "Online ordering opens soon. Please email
+  sales@picklemypaddle.com." (`no-store`, `noindex`), and the site shows its email fallback;
+- `integrations` and `postgres` are defined in `compose.production.yml` but sit in the `orders`
+  profile, so nothing starts them (CI checks both).
+
+The switch is `PMP_ORDERS` in `/opt/picklemypaddle/production/.env`: anything but `open` keeps
+orders closed.
+
+### Switching orders on
+
+Only once the sign-offs above are recorded in Jira. You'll need an integrations release
+(`vX.Y.Z`, published on the integrations repo like a site release) and the live keys.
+
+1. **The database password** (once; never change it afterwards, the data volume only opens with it):
+   ```bash
+   sudo install -d -m 0700 /etc/picklemypaddle
+   ( umask 077; printf 'POSTGRES_PASSWORD=%s\n' "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')" | sudo tee /etc/picklemypaddle/postgres.env >/dev/null )
+   sudo chmod 600 /etc/picklemypaddle/postgres.env
+   ```
+2. **The integrations secrets** in `/etc/picklemypaddle/integrations.env` (root, 600): live keys only,
+   plus the matching database address:
+   ```bash
+   pw=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' /etc/picklemypaddle/postgres.env)
+   echo "DATABASE_URL=postgres://pmp:${pw}@postgres:5432/pmp" | sudo tee -a /etc/picklemypaddle/integrations.env >/dev/null; unset pw
+   sudo chmod 600 /etc/picklemypaddle/integrations.env
+   ```
+3. **The settings** in `/opt/picklemypaddle/production/.env`: `COMPOSE_PROFILES=orders`,
+   `INTEGRATIONS_VERSION=vX.Y.Z`, and `PMP_ORDERS=open`.
+4. **Start the database and the service**, and check they answer from inside:
+   ```bash
+   cd /opt/picklemypaddle/production
+   sudo docker compose --project-directory . -f compose.production.yml up -d --wait postgres integrations
+   sudo docker compose -p pmp-production exec -T integrations wget -qO- http://127.0.0.1:8080/api/status
+   ```
+   Look for `"env":"production"` and `"database":{"reachable":true,…}`. The service refuses to start
+   with test-mode Stripe keys or relaxed abuse limits.
+5. **Open the door:** `sudo ./production/install.sh` (from `~/picklemypaddle-infra`) recreates the
+   gateway with `PMP_ORDERS=open`. Then from your Mac: `curl -s https://www.picklemypaddle.com/api/orders/form`
+   should give `{"open":true,…}`, and the order form no longer says "opens soon".
+6. **Nightly backups:** create the timer (production has no auto-update timer by design, so this
+   one is made by hand):
+   ```bash
+   sudo tee /etc/systemd/system/pmp-production-backup.service >/dev/null <<'UNIT'
+   [Unit]
+   Description=PickleMyPaddle production: back up the order database and photos (SCRUM-64)
+   Requires=docker.service
+   After=docker.service
+   [Service]
+   Type=oneshot
+   Environment=STACK_DIR=/opt/picklemypaddle/production
+   ExecStart=/opt/picklemypaddle/production/backup.sh
+   NoNewPrivileges=true
+   PrivateTmp=true
+   UNIT
+   sudo tee /etc/systemd/system/pmp-production-backup.timer >/dev/null <<'UNIT'
+   [Unit]
+   Description=Nightly PickleMyPaddle production backup (SCRUM-64)
+   [Timer]
+   OnCalendar=*-*-* 02:30:00 Australia/Sydney
+   RandomizedDelaySec=10min
+   Persistent=true
+   [Install]
+   WantedBy=timers.target
+   UNIT
+   sudo systemctl daemon-reload && sudo systemctl enable --now pmp-production-backup.timer
+   sudo /opt/picklemypaddle/production/backup.sh   # a first backup now
+   ```
+   Backups land in `/var/backups/picklemypaddle/production` (root, 700), kept 30 days. Copying
+   them off the server is SCRUM-44.
+
+`update.sh` deploys site releases only. Until it learns integrations releases, a new one is
+deployed by changing `INTEGRATIONS_VERSION` and re-running step 4 (it migrates on start; if it
+doesn't turn healthy, set the previous version back and run step 4 again).
+
+### Switching orders off again
+
+Set `PMP_ORDERS=closed` in `.env` and run `sudo ./production/install.sh`: the gateway answers 503
+again within seconds. The database and photos stay; to stop the service too:
+`sudo docker compose -p pmp-production stop integrations`.
 
 ## Day to day
 

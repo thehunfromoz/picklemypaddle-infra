@@ -81,7 +81,17 @@ get -D - -o /dev/null https://www.localhost/ | grep -qi '^x-robots-tag: noindex'
 [[ -z "$(site_running)" ]] || die "install.sh must not start the site"
 bash "$ROOT/production/install.sh" >"$WORK/out" 2>&1 || die "re-running install.sh failed"
 grep -q "kept existing .env" "$WORK/out" || die "re-install should keep .env"
-pass "0. install: HTTPS on www and the bare domain, redirects, 503 page, no site started; re-install is safe"
+# SCRUM-68: orders are closed until switched on: /api/* answers 503 with the "opens soon" text,
+# and neither integrations nor postgres is started.
+api="$(get -D - https://www.localhost/api/orders/form)"
+grep -q '^HTTP/[0-9.]* 503' <<<"$api" || die "/api/orders should answer 503 while orders are closed: $(head -n1 <<<"$api")"
+grep -q 'Online ordering opens soon' <<<"$api" || die "/api/* should give the 'ordering opens soon' answer while closed"
+grep -qi '^cache-control: no-store' <<<"$api" || die "the closed /api answer must not be cached"
+for svc in integrations postgres; do
+  [[ -z "$(docker ps -q --filter label=com.docker.compose.project=pmp-production --filter label=com.docker.compose.service=$svc)" ]] ||
+    die "$svc must not run while orders are closed"
+done
+pass "0. install: HTTPS on www and the bare domain, redirects, 503 page, no site started; re-install is safe; orders closed (503)"
 
 # 1 ── a first deploy that fails leaves visitors on the 503 page
 publish v0.9.0 500

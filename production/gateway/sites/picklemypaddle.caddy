@@ -31,7 +31,21 @@ www.{$SITE_DOMAIN:picklemypaddle.com} {
 		respond "ok" 200
 	}
 
-	# SCRUM-8/9 (integrations) will add:  handle /api/* { reverse_proxy pmp-integrations:8080 }
+	# The integrations service (SCRUM-68). Orders stay CLOSED (503) until PMP_ORDERS=open in .env
+	# and the gateway is recreated: runbooks/production-ovh-vps.md, "Switching orders on". The site
+	# reads the 503 and shows its "ordering opens soon" email fallback.
+	handle /api/* {
+		@closed expression `"{$PMP_ORDERS:closed}" != "open"`
+		header @closed {
+			Content-Type "text/plain; charset=utf-8"
+			Cache-Control "no-store"
+			X-Robots-Tag "noindex"
+			Strict-Transport-Security "{$HSTS:max-age=86400}"
+			Retry-After "86400"
+		}
+		respond @closed "Online ordering opens soon. Please email sales@picklemypaddle.com." 503
+		reverse_proxy pmp-integrations:8080
+	}
 
 	handle {
 		reverse_proxy pmp-site:80

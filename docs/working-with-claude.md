@@ -21,7 +21,8 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 
 Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
 apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
-SCRUM-8 orders (stories 64–75, refined 26 Oct 2026), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
+website story 40, built 26 Oct), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -156,6 +157,14 @@ through GitHub commit statuses, or Attila pastes command output.
 - A pull-based updater (systemd timer, 2 min) deploys, health-checks, runs the smoke tests
   and rolls back on failure. It posts the result as a `staging/home-server` commit status.
   Full detail is in `runbooks/staging-home-server.md`.
+- **Order database (SCRUM-64):** Postgres 18 on an internal network only integrations joins,
+  started by the updater before any update (labelled `com.picklemypaddle.dependency`), backed up
+  nightly. Its password is made once by `install.sh`; never regenerate it while the volume exists.
+- **Order smoke test (SCRUM-68):** after each site deploy the smoke suite places a real 1-paddle
+  order from `smoke+<run>@example.com` and expects a `PMP-` reference with `test: true`. Outside
+  production `@example.com` orders are deleted after 24 h. Staging allows 60 orders per IP per
+  hour (everything arrives from the Docker bridge address); production keeps 5 and the service
+  refuses to start with a relaxed limit.
 - Changes to `staging/` take effect only after `git pull && sudo ./staging/install.sh` on
   home-server (`--check` warns when the installed files are stale). `install.sh` restarts the
   gateway before the first update: a running gateway keeps its old Caddyfile until it is
@@ -178,10 +187,21 @@ through GitHub commit statuses, or Attila pastes command output.
   which beats any unlayered rule. In the Caddyfile, `respond` treats a first argument starting
   with `@` or `/` as a matcher, so use `respond * "…" 200`.
 
+**Testing the integrations service in the session:** `pnpm test` runs on PGlite (Postgres in
+WebAssembly). To run the built `dist/server.js` or the suite through the real `pg` driver, start
+PGlite's wire-protocol server from a scratch folder (`npm i @electric-sql/pglite
+@electric-sql/pglite-socket`, then its `dist/scripts/server.js -p 5544 -m 8`) and point
+`DATABASE_URL`/`TEST_DATABASE_URL` at `postgres://postgres:x@127.0.0.1:5544/postgres`. A Caddy binary
+from GitHub releases runs here too, so gateway configs can be validated and exercised locally.
+The shared order rules live in integrations `src/orders/rules.ts`; the site's
+`src/lib/order-rules.ts` is a byte-identical copy that its tests compare with integrations `main`.
+
 ## Production (OVH VPS-1, Sydney; SCRUM-19)
 
 - https://www.picklemypaddle.com (the bare domain redirects to it). A Caddy gateway with automatic
-  HTTPS in front of the site; integrations join later. Stack in `production/`, detail in
+  HTTPS in front of the site. Integrations and Postgres are defined but **orders are off**: they sit
+  in the `orders` profile and the gateway answers `/api/*` with 503 until `PMP_ORDERS=open`
+  (production runbook, "Switching orders on"; only after SCRUM-8, SCRUM-21 and SCRUM-75). Stack in `production/`, detail in
   `runbooks/production-ovh-vps.md`. Cloudflare DNS is **DNS only** (not proxied) so Caddy can get
   its certificates.
 - **Nothing deploys itself.** Attila runs `sudo /opt/picklemypaddle/production/update.sh deploy

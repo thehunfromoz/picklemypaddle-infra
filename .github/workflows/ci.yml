@@ -43,10 +43,22 @@ jobs:
       - name: Compose file is valid
         run: |
           cp staging/.env.example staging/.env
-          touch /tmp/integrations.env /tmp/editor.env
+          touch /tmp/integrations.env /tmp/editor.env /tmp/postgres.env
           sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
           sed -i 's|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=/tmp/editor.env|' staging/.env
+          sed -i 's|^POSTGRES_ENV_FILE=.*|POSTGRES_ENV_FILE=/tmp/postgres.env|' staging/.env
           docker compose -f staging/compose.staging.yml --project-directory staging config -q
+          # SCRUM-64: the order database publishes no port, sits only on its internal network, and only
+          # integrations joins that network. It's started first by the updater, never auto-updated.
+          cfg="$(docker compose -f staging/compose.staging.yml --project-directory staging config --format json)"
+          jq -e '.services.postgres.ports == null' <<<"$cfg" >/dev/null || { echo "::error::postgres must not publish a port"; exit 1; }
+          jq -e '(.services.postgres.networks | keys) == ["db"] and .networks.db.internal == true' <<<"$cfg" >/dev/null ||
+            { echo "::error::postgres must be on the internal db network only"; exit 1; }
+          on_db="$(jq -r '[.services | to_entries[] | select(.value.networks | has("db")) | .key] | sort | join(" ")' <<<"$cfg")"
+          [ "$on_db" = "integrations postgres" ] || { echo "::error::only integrations and postgres may join the db network (found: $on_db)"; exit 1; }
+          jq -e '.services.postgres.image | test("^postgres:[0-9]+-alpine$")' <<<"$cfg" >/dev/null ||
+            { echo "::error::postgres must be pinned to a major version (postgres:<major>-alpine)"; exit 1; }
+          test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^dependency_services()/,/^}/p" staging/update.sh); dependency_services' | xargs)" = "postgres"
           # Updater targets: exactly the labelled services
           test "$(STACK_DIR=$PWD/staging bash -c 'source <(sed -n "/^compose()/,/^}/p;/^autoupdate_services()/,/^}/p" staging/update.sh); autoupdate_services' | sort | xargs)" = "editor integrations site"
           # SCRUM-34: the editor's gateway listener is published on loopback only, never on the LAN.
@@ -63,6 +75,12 @@ jobs:
         run: |
           cp production/.env.example production/.env
           docker compose -f production/compose.production.yml --project-directory production config -q
+          # SCRUM-68: orders are off by default: integrations and postgres only exist in the orders profile.
+          off="$(docker compose -f production/compose.production.yml --project-directory production config --services | sort | xargs)"
+          [ "$off" = "gateway site" ] || { echo "::error::production must run only gateway and site until orders are switched on (got: $off)"; exit 1; }
+          on="$(COMPOSE_PROFILES=orders docker compose -f production/compose.production.yml --project-directory production config --services | sort | xargs)"
+          [ "$on" = "gateway integrations postgres site" ] || { echo "::error::the orders profile should add integrations and postgres (got: $on)"; exit 1; }
+          grep -q '^PMP_ORDERS=closed$' production/.env.example || { echo "::error::production/.env.example must keep orders closed"; exit 1; }
           # The gateway config is the Caddyfile plus one file per website (gateway/sites/*.caddy).
           # Validate it as the container sees it: once with the defaults, once with a realistic
           # domain and a quoted HSTS value, and once with the new-site template switched on.
@@ -77,6 +95,7 @@ jobs:
           }
           check defaults "$gateway/sites"
           check "example.com, HSTS" "$gateway/sites" -e SITE_DOMAIN=example.com -e 'HSTS=max-age=31536000; includeSubDomains'
+          check "orders open" "$gateway/sites" -e PMP_ORDERS=open
           tmp="$(mktemp -d)"
           cp "$gateway"/sites/*.caddy "$tmp/"
           cp "$gateway/sites/new-site.caddy.example" "$tmp/new-site.caddy"
@@ -93,7 +112,9 @@ jobs:
         run: |
           sudo mkdir -p /opt/picklemypaddle/staging
           sudo install -m 0755 staging/update.sh /opt/picklemypaddle/staging/update.sh
-          systemd-analyze verify staging/systemd/pmp-staging-update.service staging/systemd/pmp-staging-update.timer
+          sudo install -m 0755 staging/backup.sh /opt/picklemypaddle/staging/backup.sh
+          systemd-analyze verify staging/systemd/pmp-staging-update.service staging/systemd/pmp-staging-update.timer \
+            staging/systemd/pmp-staging-backup.service staging/systemd/pmp-staging-backup.timer
 
   updater:
     name: Updater deploys, rolls back and recovers
@@ -105,6 +126,9 @@ jobs:
       # required check names don't change.
       - name: Production install, deploy and rollback (SCRUM-19)
         run: bash tests/production-update.test.sh
+      # SCRUM-64: dump, restore with the same row count, photo archive, 30-day pruning (faked dates).
+      - name: Nightly backup writes, restores and prunes (SCRUM-64)
+        run: bash tests/backup.test.sh
       - name: Diagnostics on failure
         if: failure()
         run: |
@@ -130,8 +154,12 @@ jobs:
         run: |
           cp staging/.env.example staging/.env
           sed -i 's/^STAGING_BIND=.*/STAGING_BIND=127.0.0.1/' staging/.env
-          touch /tmp/integrations.env
+          # SCRUM-64: the database password and the matching DATABASE_URL, as install.sh writes them.
+          pw="$(openssl rand -hex 24)"
+          printf 'POSTGRES_PASSWORD=%s\n' "$pw" >/tmp/postgres.env
+          printf 'DATABASE_URL=postgres://pmp:%s@postgres:5432/pmp\n' "$pw" >/tmp/integrations.env
           sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
+          sed -i 's|^POSTGRES_ENV_FILE=.*|POSTGRES_ENV_FILE=/tmp/postgres.env|' staging/.env
           # Dummy GitHub App values: enough to start the editor and check its sign-in redirect.
           printf 'KEYSTATIC_GITHUB_CLIENT_ID=Iv1.citestclient\nKEYSTATIC_GITHUB_CLIENT_SECRET=%s\nKEYSTATIC_SECRET=%s\n' \
             "$(openssl rand -hex 20)" "$(openssl rand -hex 32)" >/tmp/editor.env
@@ -157,6 +185,12 @@ jobs:
           out="$(curl -fsS http://127.0.0.1:8088/api/status)"
           echo "$out"
           grep -q '"env":"staging"' <<<"$out"
+          # SCRUM-64: images from SCRUM-65 on report their database; it must be reachable and migrated.
+          if grep -q '"database"' <<<"$out"; then
+            jq -e '.database.reachable and .database.migration == .database.latest' <<<"$out" >/dev/null ||
+              { echo "::error::integrations can't reach its database, or the schema isn't current: $out"; exit 1; }
+            echo "::notice title=order database::integrations reached Postgres through the staging stack ($(jq -c .database <<<"$out"))"
+          fi
       - name: Blog editor is behind the gateway on loopback only, never on the LAN listener (SCRUM-34)
         run: |
           # The LAN listener refuses the editor's paths.

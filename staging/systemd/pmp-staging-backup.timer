@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly PickleMyPaddle staging backup (SCRUM-64)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Australia/Sydney
+RandomizedDelaySec=10min
+# If home-server was off at 02:30, back up when it next starts.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

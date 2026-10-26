@@ -1,9 +1,14 @@
 # PickleMyPaddle — production stack on the OVH VPS (SCRUM-19).
 #
 #   internet ──► :80 / :443 ──► gateway (Caddy, automatic HTTPS) ──► site
+#                                                                 └──► integrations (/api/*) ──► postgres
 #
-# www.<domain> is the canonical address; the bare domain redirects to it. The
-# integrations service (/api/*) is added here later; today production is the site only.
+# www.<domain> is the canonical address; the bare domain redirects to it.
+#
+# ORDERS ARE OFF until Attila switches them on (SCRUM-68): integrations and postgres are in the
+# "orders" profile, so nothing starts them, and the gateway answers /api/* with 503 while
+# PMP_ORDERS isn't "open". Switching on is a documented step (runbooks/production-ovh-vps.md,
+# "Switching orders on"), only after SCRUM-8 and the security epic SCRUM-21 are signed off.
 #
 # The gateway can serve more websites on this server (one file each in gateway/sites/).
 # Each website lives in its own Compose project and its own private network, and the gateway
@@ -35,6 +40,8 @@ services:
       SITE_DOMAIN: ${SITE_DOMAIN:-picklemypaddle.com}
       ACME_EMAIL: ${ACME_EMAIL:-sales@picklemypaddle.com}
       HSTS: ${HSTS:-max-age=86400}
+      # "open" sends /api/* to integrations; anything else answers 503 (SCRUM-68).
+      PMP_ORDERS: ${PMP_ORDERS:-closed}
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./gateway/sites:/etc/caddy/sites:ro
@@ -86,10 +93,76 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Orders (SCRUM-64 to 68): defined and ready, started only with COMPOSE_PROFILES=orders ──
+  # Like the site, integrations runs a release tag (vX.Y.Z) only, never :staging.
+  integrations:
+    profiles: [orders]
+    image: ${INTEGRATIONS_IMAGE_REPO:-ghcr.io/thehunfromoz/picklemypaddle-integrations}:${INTEGRATIONS_VERSION:-none}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      APP_ENV: production
+      PORT: "8080"
+      PUBLIC_SITE_ORIGIN: https://www.${SITE_DOMAIN:-picklemypaddle.com}
+      TRUSTED_PROXIES: gateway
+    # Live keys only, plus DATABASE_URL; root-only, like staging's. Optional here so the stack
+    # still validates before the file exists; the service itself refuses to start without it.
+    env_file:
+      - path: ${INTEGRATIONS_ENV_FILE:-/etc/picklemypaddle/integrations.env}
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - photos:/data/photos
+    networks:
+      production:
+        aliases: [pmp-integrations]
+      db: {}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  postgres:
+    profiles: [orders]
+    image: postgres:18-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: pmp
+      POSTGRES_DB: pmp
+    env_file:
+      - path: ${POSTGRES_ENV_FILE:-/etc/picklemypaddle/postgres.env}
+        required: false
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [db]
+    read_only: true
+    tmpfs: [/var/run/postgresql, /tmp]
+    shm_size: 128m
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmp -d pmp -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 networks:
   production:
     name: pmp-production
+  # The order database's own network: internal, joined only by postgres and integrations.
+  db:
+    name: pmp-production-db
+    internal: true
 
 volumes:
   caddy_data:
     name: pmp-production-caddy-data
+  pgdata:
+    name: pmp-production-pgdata
+  photos:
+    name: pmp-production-photos

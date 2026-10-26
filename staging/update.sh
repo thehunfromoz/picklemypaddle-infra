@@ -13,6 +13,8 @@
 #      and puts the previous image back;
 #   7. posts the outcome to the image's commit on GitHub as a "staging/home-server"
 #      commit status (if a status token is installed).
+# Before any of that it starts the services the others depend on (postgres, SCRUM-64) and skips
+# the round if they aren't healthy, so a new image is never rolled back for a database problem.
 #
 # It only pulls and runs published images: nothing here fetches or executes code
 # from the (public) GitHub repos. Exit code: 0 = all fine, 1 = something failed
@@ -58,6 +60,20 @@ for name, svc in json.load(sys.stdin)["services"].items():
     if isinstance(labels, list):
         labels = dict(l.split("=", 1) for l in labels)
     if str(labels.get("com.picklemypaddle.autoupdate", "")).lower() == "true":
+        print(name)'
+}
+
+# Services the others need running first (SCRUM-64: postgres), labelled
+# com.picklemypaddle.dependency=true. They are started (never replaced) before any update, so a new
+# integrations image is never judged while its database is down.
+dependency_services() {
+  compose config --format json | python3 -c '
+import json, sys
+for name, svc in json.load(sys.stdin)["services"].items():
+    labels = svc.get("labels") or {}
+    if isinstance(labels, list):
+        labels = dict(l.split("=", 1) for l in labels)
+    if str(labels.get("com.picklemypaddle.dependency", "")).lower() == "true":
         print(name)'
 }
 
@@ -248,7 +264,16 @@ main() {
     exit 0
   fi
 
-  local status=0 svc
+  local status=0 svc deps
+  deps="$(dependency_services)"
+  if [[ -n "$deps" ]]; then
+    # shellcheck disable=SC2086 # one word per service
+    if ! compose up -d --pull missing --no-recreate --wait --wait-timeout "$HEALTH_TIMEOUT" $deps >/dev/null 2>&1; then
+      # Judging new images now would blame them for a database problem: skip this round.
+      log "dependencies ($(xargs <<<"$deps")) are not healthy; no updates this round (see 'docker compose ps')"
+      exit 1
+    fi
+  fi
   for svc in $(autoupdate_services); do
     update_service "$svc" || status=1
   done

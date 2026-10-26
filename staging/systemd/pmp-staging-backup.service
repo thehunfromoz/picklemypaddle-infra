@@ -1,0 +1,17 @@
+[Unit]
+Description=PickleMyPaddle staging: back up the order database and photos (SCRUM-64)
+Documentation=https://github.com/thehunfromoz/picklemypaddle-infra/blob/main/runbooks/staging-home-server.md
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=STACK_DIR=/opt/picklemypaddle/staging
+Environment=DOCKER_CONFIG=/var/lib/pmp-staging/docker
+StateDirectory=pmp-staging
+ExecStart=/opt/picklemypaddle/staging/backup.sh
+TimeoutStartSec=30min
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

@@ -110,7 +110,7 @@ fi
 
 # Is what is installed in /opt the same as this checkout? (What runs is /opt, not the checkout.)
 stale=""
-for f in compose.production.yml update.sh; do
+for f in compose.production.yml update.sh backup.sh; do
   cmp -s "$SRC_DIR/$f" "$DEST_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
 # The gateway config is the Caddyfile plus one file per website in gateway/sites/.
@@ -144,6 +144,9 @@ for f in "$DEST_DIR"/gateway/sites/*; do
   [[ -f "$f" && ! -e "$SRC_DIR/gateway/sites/$(basename "$f")" ]] && rm -f "$f"
 done
 install -m 0755 "$SRC_DIR/update.sh" "$DEST_DIR/update.sh"
+# SCRUM-64: the order backup. Copied now; its nightly timer is set up when orders are switched on
+# (runbooks/production-ovh-vps.md, "Switching orders on"). Until then it has nothing to back up.
+install -m 0755 "$SRC_DIR/backup.sh" "$DEST_DIR/backup.sh"
 if [[ -f "$DEST_DIR/.env" ]]; then
   ok "kept existing .env"
 else

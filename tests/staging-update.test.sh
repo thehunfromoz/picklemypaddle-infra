@@ -13,6 +13,8 @@
 #   7. image without a smoke-test image stays live, status "error"
 #   8. the blog editor (SCRUM-34) deploys with its own status name, only on the loopback
 #      listener; the LAN listener answers 404 for its paths
+#   9. the order database (SCRUM-64) is started first and kept running: never replaced by an
+#      update, not published, and only integrations can reach it
 # Every deploy's outcome is checked as a commit status on a fake GitHub API.
 set -euo pipefail
 
@@ -100,8 +102,10 @@ echo "test-token" >"$GITHUB_STATUS_TOKEN_FILE"
 python3 "$ROOT/tests/fixtures/fake_github.py" "$STATUSES" &
 API_PID=$!
 # Stand-in integrations service (labelled for auto-update like the site) and its
-# empty secrets file.
+# empty secrets file. Its database (SCRUM-64) is the real postgres image from the stack; the
+# updater starts it before any update.
 : >"$WORK/integrations.env"
+printf 'POSTGRES_PASSWORD=%s\n' "$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" >"$WORK/postgres.env"
 docker build -q -t "$REG/pmp-test/integrations:staging" --build-arg VERSION=INT --build-arg HEALTH=200 --build-arg LISTEN=8080 --build-arg STATE_PREFIX=/tmp/ \
   --label org.opencontainers.image.revision=rev-INT --label org.opencontainers.image.source=https://github.com/test/integrations \
   "$ROOT/tests/fixtures" >/dev/null
@@ -125,6 +129,7 @@ sed -e "s|^STAGING_PORT=.*|STAGING_PORT=$PORT|" \
     -e "s|^SITE_IMAGE=.*|SITE_IMAGE=$IMG:staging|" \
     -e "s|^INTEGRATIONS_IMAGE=.*|INTEGRATIONS_IMAGE=$REG/pmp-test/integrations:staging|" \
     -e "s|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=$WORK/integrations.env|" \
+    -e "s|^POSTGRES_ENV_FILE=.*|POSTGRES_ENV_FILE=$WORK/postgres.env|" \
     -e "s|^EDITOR_IMAGE=.*|EDITOR_IMAGE=$REG/pmp-test/site-editor:staging|" \
     -e "s|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=$WORK/editor.env|" \
     -e "s|^EDITOR_LOCAL_PORT=.*|EDITOR_LOCAL_PORT=$EDITOR_PORT|" \
@@ -201,5 +206,25 @@ grep -q "^/repos/test/site/statuses/rev-ED2 Bearer test-token success staging/ho
 bound="$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" port gateway 8081)"
 [[ "$bound" == "127.0.0.1:$EDITOR_PORT" ]] || die "editor listener published on $bound, not loopback only"
 pass "8. editor deploys under its own status name, loopback only; the LAN listener 404s its paths"
+
+# 9 ── the order database (SCRUM-64)
+dc() { docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" "$@"; }
+pg_id="$(dc ps -q postgres)"
+[[ -n "$pg_id" ]] || die "the updater didn't start postgres"
+[[ "$(docker inspect -f '{{.State.Health.Status}}' "$pg_id")" == healthy ]] || die "postgres isn't healthy"
+publish D 200
+update || die "update with postgres running should succeed"
+[[ "$(served)" == "version D" ]] || die "expected version D, got: $(served)"
+[[ "$(dc ps -q postgres)" == "$pg_id" ]] || die "an update replaced the postgres container"
+[[ "$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$pg_id")" =~ ^(\{\}|null)$ ]] ||
+  die "postgres publishes ports: $(docker inspect -f '{{json .NetworkSettings.Ports}}' "$pg_id")"
+[[ "$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$pg_id" | xargs)" == pmp-staging-db ]] ||
+  die "postgres must be on pmp-staging-db only"
+img="$(docker inspect -f '{{.Config.Image}}' "$pg_id")"
+docker run --rm --network pmp-staging-db "$img" pg_isready -h postgres -t 5 >/dev/null || die "postgres not reachable on its own network"
+if docker run --rm --network pmp-staging "$img" pg_isready -h postgres -t 3 >/dev/null 2>&1; then
+  die "postgres is reachable from the gateway's network"
+fi
+pass "9. postgres started first, kept across updates, unpublished, reachable only on its own network"
 
 echo "All updater scenarios passed."

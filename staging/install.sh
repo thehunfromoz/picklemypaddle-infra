@@ -22,6 +22,9 @@ TOKEN_FILE="/etc/picklemypaddle/github-status.token"
 STATUS_REPO="thehunfromoz/picklemypaddle-site"
 SECRETS_FILE="/etc/picklemypaddle/integrations.env"
 EDITOR_SECRETS_FILE="/etc/picklemypaddle/editor.env"
+# SCRUM-64: the order database's password. integrations gets the matching DATABASE_URL.
+POSTGRES_SECRETS_FILE="/etc/picklemypaddle/postgres.env"
+PGDATA_VOLUME="pmp-staging-pgdata"
 IMAGES=(ghcr.io/thehunfromoz/picklemypaddle-site:staging ghcr.io/thehunfromoz/picklemypaddle-integrations:staging
   ghcr.io/thehunfromoz/picklemypaddle-site-editor:staging)
 CHECK_ONLY=false
@@ -80,8 +83,9 @@ KEYSTATIC_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
 SECRETS
   )
 }
-editor_set() { # editor_set <key> <value>: replace one line, keeping the rest
-  python3 - "$EDITOR_SECRETS_FILE" "$1" "$2" <<'PY2'
+editor_set() { secret_set "$EDITOR_SECRETS_FILE" "$1" "$2"; }
+secret_set() { # secret_set <file> <key> <value>: replace one line, keeping the rest (root-only)
+  python3 - "$1" "$2" "$3" <<'PY2'
 import os, sys
 path, key, value = sys.argv[1:]
 lines = open(path, encoding="utf-8").read().splitlines()
@@ -179,6 +183,16 @@ else
   printf '  \033[33m!\033[0m %s will be created (empty; add TEST-mode keys later, see runbook)\n' "$SECRETS_FILE"
 fi
 
+if [[ -f "$POSTGRES_SECRETS_FILE" ]]; then
+  perms="$(stat -c '%a %U' "$POSTGRES_SECRETS_FILE")"
+  if [[ "$perms" == "600 root" ]]; then ok "database password file is root-only"; else
+    fail "$POSTGRES_SECRETS_FILE must be owned by root with mode 600 (is: $perms); fix: sudo chmod 600 $POSTGRES_SECRETS_FILE && sudo chown root:root $POSTGRES_SECRETS_FILE"; fi
+elif docker volume inspect "$PGDATA_VOLUME" >/dev/null 2>&1; then
+  fail "the database volume $PGDATA_VOLUME exists but $POSTGRES_SECRETS_FILE is missing: a new password wouldn't open it. Restore the file, or reset staging's database (runbook: 'Order database')"
+else
+  printf '  \033[33m!\033[0m %s will be created (random database password; DATABASE_URL added to %s)\n' "$POSTGRES_SECRETS_FILE" "$SECRETS_FILE"
+fi
+
 if [[ -f "$EDITOR_SECRETS_FILE" ]]; then
   perms="$(stat -c '%a %U' "$EDITOR_SECRETS_FILE")"
   if [[ "$perms" == "600 root" ]]; then ok "blog editor secrets file is root-only"; else
@@ -199,10 +213,10 @@ fi
 
 # Is what's installed in /opt the same as this checkout? (The timer runs /opt.)
 stale=""
-for f in compose.staging.yml gateway/Caddyfile update.sh; do
+for f in compose.staging.yml gateway/Caddyfile update.sh backup.sh; do
   cmp -s "$SRC_DIR/$f" "$DEST_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
-for f in pmp-staging-update.service pmp-staging-update.timer; do
+for f in pmp-staging-update.service pmp-staging-update.timer pmp-staging-backup.service pmp-staging-backup.timer; do
   cmp -s "$SRC_DIR/systemd/$f" "$UNIT_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
 if [[ -n "$stale" ]]; then
@@ -223,6 +237,7 @@ if [[ ! -f "$SECRETS_FILE" ]]; then
 # Leave a value empty until its integration is built. After editing, apply with:
 #   cd ~/picklemypaddle-infra && sudo ./staging/install.sh
 # APP_ENV, PORT and PUBLIC_SITE_ORIGIN are set in compose.staging.yml, not here.
+# DATABASE_URL is written by install.sh from /etc/picklemypaddle/postgres.env (SCRUM-64).
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 HUBSPOT_ACCESS_TOKEN=
@@ -234,6 +249,31 @@ else
   chmod 600 "$SECRETS_FILE"; chown root:root "$SECRETS_FILE"
   ok "kept $SECRETS_FILE (root-only)"
 fi
+# SCRUM-64: the database password, made once. Never replaced: the database volume only opens with it.
+if [[ ! -f "$POSTGRES_SECRETS_FILE" ]]; then
+  ( umask 077; cat >"$POSTGRES_SECRETS_FILE" <<SECRETS
+# PickleMyPaddle order database (Postgres): STAGING password. Root-only (chmod 600).
+# Made by install.sh. Don't change it: the database volume was initialised with it.
+# integrations reaches the database with the matching DATABASE_URL in $SECRETS_FILE.
+POSTGRES_PASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+SECRETS
+  )
+  ok "created $POSTGRES_SECRETS_FILE (root-only, random password)"
+else
+  chmod 600 "$POSTGRES_SECRETS_FILE"; chown root:root "$POSTGRES_SECRETS_FILE"
+  ok "kept $POSTGRES_SECRETS_FILE (root-only)"
+fi
+db_password="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$POSTGRES_SECRETS_FILE" | tail -n1)"
+[[ "$db_password" =~ ^[0-9a-f]{32,}$ ]] || fail "$POSTGRES_SECRETS_FILE has no usable POSTGRES_PASSWORD (expected the hex password install.sh makes)"
+if grep -qxF "DATABASE_URL=postgres://pmp:${db_password}@postgres:5432/pmp" "$SECRETS_FILE"; then
+  ok "integrations already has the database's DATABASE_URL"
+else
+  secret_set "$SECRETS_FILE" DATABASE_URL "postgres://pmp:${db_password}@postgres:5432/pmp"
+  chown root:root "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
+  ok "wrote DATABASE_URL to $SECRETS_FILE"
+fi
+unset db_password
+
 if [[ ! -f "$EDITOR_SECRETS_FILE" ]]; then
   new_editor_secrets
   ok "created $EDITOR_SECRETS_FILE (root-only, sign-in key generated)"
@@ -244,6 +284,7 @@ fi
 install -m 0644 "$SRC_DIR/compose.staging.yml" "$DEST_DIR/compose.staging.yml"
 install -m 0644 "$SRC_DIR/gateway/Caddyfile" "$DEST_DIR/gateway/Caddyfile"
 install -m 0755 "$SRC_DIR/update.sh" "$DEST_DIR/update.sh"
+install -m 0755 "$SRC_DIR/backup.sh" "$DEST_DIR/backup.sh"
 if [[ -f "$DEST_DIR/.env" ]]; then
   ok "kept existing .env"
   # Settings added since it was created (SCRUM-34 adds the editor's): append any that are missing,
@@ -264,9 +305,13 @@ ok "compose file is valid"
 info "Installing the updater (systemd timer, every 2 minutes)"
 install -m 0644 "$SRC_DIR/systemd/pmp-staging-update.service" "$UNIT_DIR/"
 install -m 0644 "$SRC_DIR/systemd/pmp-staging-update.timer" "$UNIT_DIR/"
+install -m 0644 "$SRC_DIR/systemd/pmp-staging-backup.service" "$UNIT_DIR/"
+install -m 0644 "$SRC_DIR/systemd/pmp-staging-backup.timer" "$UNIT_DIR/"
 systemctl daemon-reload
 systemctl enable --now pmp-staging-update.timer >/dev/null
 ok "timer enabled"
+systemctl enable --now pmp-staging-backup.timer >/dev/null
+ok "nightly backup enabled (02:30 Sydney time, kept $(sed -n 's/^BACKUP_KEEP_DAYS=//p' "$DEST_DIR/.env" | tail -n1 || true) days; SCRUM-64)"
 
 # Refresh the gateway BEFORE the first update: the update runs the smoke tests
 # through the gateway, and a running gateway keeps its old Caddyfile until it is
@@ -303,6 +348,16 @@ if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
   ok "http://127.0.0.1:$PORT/healthz answers"
 else
   fail "the site didn't answer on port $PORT"
+fi
+
+# SCRUM-64: once integrations reports its database (images from SCRUM-65 on), it must be reachable.
+api_status="$(curl -fsS "http://127.0.0.1:$PORT/api/status" 2>/dev/null || true)"
+if grep -q '"database"' <<<"$api_status"; then
+  if grep -q '"reachable":true' <<<"$api_status"; then
+    ok "integrations reaches the order database ($(grep -o '"migration":[0-9]*' <<<"$api_status"))"
+  else
+    fail "integrations can't reach the order database; see: sudo docker compose -p pmp-staging logs integrations postgres"
+  fi
 fi
 
 EDITOR_PORT="$(sed -n 's/^EDITOR_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"

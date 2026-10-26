@@ -13,12 +13,16 @@ GitHub (merge to main) ─► CI tests ─► GHCR  ghcr.io/thehunfromoz/picklem
                                              ▲ pulled every 2 min
 home-server ── pmp-staging-update.timer ─► update.sh ─► docker compose (project "pmp-staging")
                                                              gateway :8088 ─► site
-                                                                     │       └► integrations (/api/*)
+                                                                     │       └► integrations (/api/*) ─► postgres
                                        (loopback only, for Tailscale) :8089 ─► editor (blog)
+home-server ── pmp-staging-backup.timer (02:30) ─► backup.sh ─► /var/backups/picklemypaddle/staging
 ```
 
 - **Two services behind one address.** The gateway sends `/api/*` to the integrations service
   (orders, CRM, payments) and everything else to the site. Both update themselves the same way.
+- **The order database (SCRUM-64)** is a Postgres 18 that only integrations can reach (its own
+  internal network, no published port). It is started before any update and never replaced by
+  one; see "Order database" below.
 - **Pull, not push.** home-server checks GHCR every 2 minutes. GitHub never connects to
   your LAN, and home-server never runs code from the public repos, only images that
   passed CI.
@@ -311,6 +315,83 @@ then pull request and merge as above.
 | The PR's checks fail on the post | Open the failing check's annotation. The usual causes: a summary outside 70 to 160 characters, a top-level (Heading 1) heading in the body (the title is the page's only one, so start at Heading 2), or a cover image without a description. The editor now refuses the first two while you write (site PR #43), but a post started before that, or edited by hand, can still have them. Fix it in the editor on the same branch; the PR updates. |
 | The editor shows an old version | It updates with the site; `sudo docker compose -p pmp-staging ps editor` shows its state. A failed editor image is rolled back like the site and reported as `staging/home-server/editor` on its commit. |
 
+## Order database (SCRUM-64)
+
+The integrations service's own Postgres is the order of record. On home-server:
+
+| What | Where |
+| --- | --- |
+| Database | service `postgres` in the `pmp-staging` project, image `postgres:18-alpine`, database and user `pmp` |
+| Its data | Docker volume `pmp-staging-pgdata` |
+| Paddle photos | Docker volume `pmp-staging-photos` (mounted in integrations at `/data/photos`; nothing serves it) |
+| Password | `/etc/picklemypaddle/postgres.env` (root, 600), made once by `install.sh` |
+| `DATABASE_URL` | `/etc/picklemypaddle/integrations.env` (root, 600), written by `install.sh` to match |
+| Nightly backups | `/var/backups/picklemypaddle/staging` (root, 700): `db-<time>.dump` and `photos-<time>.tar.gz`, kept 30 days |
+
+- The schema is migrated by integrations when it starts. A failed migration means the new
+  container never turns healthy, so the updater puts the previous image back.
+- The updater starts postgres before any update. If postgres isn't healthy it updates nothing
+  that round ("dependencies … are not healthy" in the journal), so no image is blamed for it.
+- Postgres changes only when you re-run `install.sh` (like the gateway). A new **major** version
+  is a deliberate change in `compose.staging.yml`, with a dump and restore.
+- Never delete `/etc/picklemypaddle/postgres.env` on its own: the data volume only opens with
+  that password, and `install.sh` refuses to invent a new one while the volume exists.
+
+### Back up by hand
+
+```bash
+sudo /opt/picklemypaddle/staging/backup.sh          # what the 02:30 timer runs
+sudo ls -lh /var/backups/picklemypaddle/staging
+journalctl -u pmp-staging-backup.service --since -2d  # the nightly runs (counts and sizes only)
+```
+
+### Restore by hand
+
+Into a scratch database first, to check a backup (this is the restore drill):
+
+```bash
+cd /opt/picklemypaddle/staging
+f=$(sudo ls -t /var/backups/picklemypaddle/staging/db-*.dump | head -n1); echo "$f"
+sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d pmp -c 'CREATE DATABASE restore_check'
+sudo cat "$f" | sudo docker compose -p pmp-staging exec -T postgres pg_restore -U pmp -d restore_check --no-owner
+for db in pmp restore_check; do
+  sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d $db -tAc 'select count(*) from orders'
+done                                                  # the two counts should match
+sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d pmp -c 'DROP DATABASE restore_check'
+```
+
+To replace the live database with a backup (staging only, everything since that backup is lost):
+
+```bash
+sudo systemctl stop pmp-staging-update.timer
+sudo docker compose -p pmp-staging stop integrations
+sudo cat "$f" | sudo docker compose -p pmp-staging exec -T postgres pg_restore -U pmp -d pmp --clean --if-exists --no-owner
+p=$(sudo ls -t /var/backups/picklemypaddle/staging/photos-*.tar.gz | head -n1)
+sudo cat "$p" | sudo docker run --rm -i -v pmp-staging-photos:/dst postgres:18-alpine sh -c 'rm -rf /dst/* && tar -C /dst -xzf - && chown -R 1000:1000 /dst'
+sudo docker compose -p pmp-staging start integrations && sudo systemctl start pmp-staging-update.timer
+```
+
+### Reset staging's database (throw all test orders away)
+
+```bash
+sudo systemctl stop pmp-staging-update.timer
+sudo docker compose -p pmp-staging rm -sf integrations postgres
+sudo docker volume rm pmp-staging-pgdata pmp-staging-photos
+sudo systemctl start pmp-staging-update.service   # recreates both, empty; integrations migrates on start
+sudo systemctl start pmp-staging-update.timer
+```
+
+The password file stays, so the new database gets the same password.
+
+### The order smoke test (SCRUM-68)
+
+After each site deploy, the smoke tests place a real 1-paddle order through the gateway, from a
+`smoke+<run>@example.com` address, and expect `201` with a `PMP-` reference and `test: true`.
+Outside production, orders from `@example.com` are smoke orders: the service deletes them, with
+their photos, 24 hours later. Staging allows 60 orders per IP per hour
+(`STAGING_ORDER_LIMIT_PER_IP_HOUR` in `.env`), because the smoke tests, Tailscale visitors and your
+own tests all reach the service from the same Docker bridge address; production keeps 5.
+
 ## Day to day
 
 | I want to… | Run on home-server |
@@ -323,6 +404,10 @@ then pull request and merge as above.
 | List deploy history | `sudo cat /var/lib/pmp-staging/site.deployed` |
 | See the last smoke-test run | `sudo cat /var/lib/pmp-staging/site.smoke.log` |
 | See results on GitHub | the ✓/✗ next to each commit on the `picklemypaddle-site` commits page |
+| See integrations/database logs | `sudo docker compose -p pmp-staging logs --tail 50 integrations postgres` |
+| Check the order database | `curl -s http://home-server:8088/api/status` (`"database":{"reachable":true,…}`) |
+| Count the test orders | `sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d pmp -c 'select status, count(*) from orders group by 1'` |
+| Check the nightly backup | `systemctl list-timers pmp-staging-backup.timer` and `sudo ls -lh /var/backups/picklemypaddle/staging` |
 
 ### Roll back by hand
 
@@ -362,11 +447,33 @@ you've pulled changes but haven't installed them yet.
 ### Remove staging
 
 ```bash
-sudo systemctl disable --now pmp-staging-update.timer
+sudo systemctl disable --now pmp-staging-update.timer pmp-staging-backup.timer
 sudo docker compose -p pmp-staging down
-sudo rm /etc/systemd/system/pmp-staging-update.{service,timer} && sudo systemctl daemon-reload
+sudo rm /etc/systemd/system/pmp-staging-{update,backup}.{service,timer} && sudo systemctl daemon-reload
 sudo rm -r /opt/picklemypaddle/staging /var/lib/pmp-staging
+# The test orders, photos and backups stay unless you also run:
+#   sudo docker volume rm pmp-staging-pgdata pmp-staging-photos
+#   sudo rm -r /var/backups/picklemypaddle/staging /etc/picklemypaddle/postgres.env
 ```
+
+## Acceptance checks (SCRUM-64, SCRUM-68)
+
+Once the infra PR is merged and installed (`git pull && sudo ./staging/install.sh`), then the
+integrations and site PRs are merged and show a green `staging/home-server` tick:
+
+1. `sudo ./staging/install.sh` ends with "integrations reaches the order database (migration 1)".
+2. `curl -s http://home-server:8088/api/status` shows `"database":{"reachable":true,"migration":1,"latest":1}`.
+3. `sudo /opt/picklemypaddle/staging/backup.sh` writes a dump and a photo archive; then do the
+   **restore drill** above ("Restore by hand", scratch database) and paste the output on SCRUM-64.
+4. From your phone over Tailscale, place a test order with a camera photo: you get a
+   `PMP-` reference, the TEST wording and a private status link that opens. Comment on SCRUM-68.
+5. Check the stored photo has no location (SCRUM-66): copy it out and run `exiftool` on it:
+   ```bash
+   cd /opt/picklemypaddle/staging
+   f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1')
+   sudo docker compose -p pmp-staging cp "integrations:$f" /tmp/paddle-check.jpg && exiftool /tmp/paddle-check.jpg
+   ```
+   It should show only file and JPEG basics: no GPS, camera make or model. Paste on SCRUM-66.
 
 ## Acceptance checks (SCRUM-34)
 
