@@ -35,6 +35,12 @@ services:
     environment: { POSTGRES_USER: pmp, POSTGRES_DB: pmp, POSTGRES_PASSWORD: "$PASSWORD" }
     volumes: [pgdata:/var/lib/postgresql]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U pmp -d pmp -h 127.0.0.1"], interval: 2s, retries: 30 }
+  # Stands in for integrations, which mounts the photo volume in the real stacks. Never started;
+  # it's here because Compose leaves volumes no service uses out of \`docker compose config\`.
+  integrations:
+    image: postgres:18-alpine
+    entrypoint: ["true"]
+    volumes: [photos:/data/photos]
 volumes:
   pgdata: { name: pmp-backup-test-pgdata }
   photos: { name: pmp-backup-test-photos }
