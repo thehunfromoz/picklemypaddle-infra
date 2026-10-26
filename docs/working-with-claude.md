@@ -142,6 +142,11 @@ through GitHub commit statuses, or Attila pastes command output.
 
 - http://home-server:8088: the gateway routes `/api/*` to integrations, everything else to
   the site. `/version.txt` shows the live site commit.
+- **home-server's CPU predates x86-64-v2** (no SSE4.2; Core 2 class). Native code built for v2
+  crashes there although CI (newer runners) passes: sharp's prebuilt binaries did on 26 Oct 2026
+  (SCRUM-66), so integrations uses Alpine's libvips tools instead. Check any new native dependency
+  or base image against this. integrations' container test runs the image under QEMU
+  `-cpu Penryn` to catch it; QEMU's `qemu64` model is too old even for Node, so use Penryn.
 - **Blog editor (SCRUM-34):** Keystatic, staging only, Tailscale only:
   `https://home-server.tail8bc7ae.ts.net:8444/keystatic` → Tailscale Serve → the gateway's
   second listener (`:8081`, published on `127.0.0.1:8089` only) → `editor:4321`. The LAN
