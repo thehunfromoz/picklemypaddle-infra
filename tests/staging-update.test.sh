@@ -216,8 +216,8 @@ publish D 200
 update || die "update with postgres running should succeed"
 [[ "$(served)" == "version D" ]] || die "expected version D, got: $(served)"
 [[ "$(dc ps -q postgres)" == "$pg_id" ]] || die "an update replaced the postgres container"
-[[ "$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$pg_id")" =~ ^(\{\}|null)$ ]] ||
-  die "postgres publishes ports: $(docker inspect -f '{{json .NetworkSettings.Ports}}' "$pg_id")"
+# The image EXPOSEs 5432 (listed with no host binding); only a host binding would publish it.
+[[ -z "$(docker port "$pg_id")" ]] || die "postgres publishes ports to the host: $(docker port "$pg_id" | xargs)"
 [[ "$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$pg_id" | xargs)" == pmp-staging-db ]] ||
   die "postgres must be on pmp-staging-db only"
 img="$(docker inspect -f '{{.Config.Image}}' "$pg_id")"
