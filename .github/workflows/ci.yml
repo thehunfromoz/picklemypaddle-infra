@@ -240,6 +240,11 @@ jobs:
           docker run --rm --network host --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
             -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 "$smoke" >/tmp/smoke.log 2>&1 || rc=$?
           cat /tmp/smoke.log
+          # SCRUM-68: show that the real order test ran (site builds from SCRUM-68 on place one).
+          order="$(grep -o -m1 'smoke order PMP-[A-Z0-9]* placed' /tmp/smoke.log || true)"
+          if [ -n "$order" ]; then
+            echo "::notice title=staging order smoke test::$order through the gateway, integrations and Postgres"
+          fi
           if [ "$rc" -ne 0 ]; then
             # Every failing test and the totals first, then the first error details.
             out="$( { grep -E '^ *[0-9]+\) |^ *[0-9]+ (failed|flaky|passed|skipped)' /tmp/smoke.log || true; } | sed 's/ ─*$//')"

@@ -164,6 +164,8 @@ run_smoke() { # run_smoke <service> <image-id> <repo>
     "$smoke" >"$STATE_DIR/$svc.smoke.log" 2>&1 || rc=1
   docker rm -f "$name" >/dev/null 2>&1 || true
   tail -n 5 "$STATE_DIR/$svc.smoke.log" | sed "s/^/$svc smoke | /"
+  # SCRUM-68: the real test order the smoke suite placed, so the journal shows it ran.
+  grep -o 'smoke order PMP-[A-Z0-9]* placed' "$STATE_DIR/$svc.smoke.log" | sed "s/^/$svc smoke | /" || true
   # Keep only the latest smoke image (they're large; base layers stay cached).
   prev="$(cat "$STATE_DIR/$svc.smoke-image" 2>/dev/null || true)"
   if [[ -n "$prev" && "$prev" != "$smoke" ]]; then
