@@ -473,9 +473,12 @@ integrations and site PRs are merged and show a green `staging/home-server` tick
 5. Check the stored photo has no location (SCRUM-66): copy it out and run `exiftool` on it:
    ```bash
    cd /opt/picklemypaddle/staging
-   f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1' | tr -d '\r')
-   # Read straight from the container (exiftool's "-" is stdin), so no root-owned copy is left behind.
-   sudo docker compose -p pmp-staging exec -T integrations cat "$f" | exiftool -
+   f=$(sudo docker exec pmp-staging-integrations-1 sh -c 'ls -t /data/photos/*/*.jpg | head -n1' </dev/null)
+   echo "$f"
+   # Read straight from the container (exiftool's "-" is stdin), so no root-owned copy is left
+   # behind. `</dev/null` matters: without it `docker compose exec` waited on the terminal and
+   # hung when its output was piped (27 Oct 2026).
+   sudo docker exec pmp-staging-integrations-1 cat "$f" </dev/null | exiftool -
    ```
    It should show only file and JPEG basics: no GPS, camera make or model. Paste on SCRUM-66.
    (`exiftool` is in Ubuntu's `libimage-exiftool-perl` package.)
