@@ -474,8 +474,8 @@ integrations and site PRs are merged and show a green `staging/home-server` tick
    ```bash
    cd /opt/picklemypaddle/staging
    f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1' | tr -d '\r')
-   sudo docker cp "pmp-staging-integrations-1:$f" /tmp/paddle-check.jpg && exiftool /tmp/paddle-check.jpg
-   rm /tmp/paddle-check.jpg
+   # Read straight from the container (exiftool's "-" is stdin), so no root-owned copy is left behind.
+   sudo docker compose -p pmp-staging exec -T integrations cat "$f" | exiftool -
    ```
    It should show only file and JPEG basics: no GPS, camera make or model. Paste on SCRUM-66.
    (`exiftool` is in Ubuntu's `libimage-exiftool-perl` package.)
