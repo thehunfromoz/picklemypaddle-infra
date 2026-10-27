@@ -473,11 +473,17 @@ integrations and site PRs are merged and show a green `staging/home-server` tick
 5. Check the stored photo has no location (SCRUM-66): copy it out and run `exiftool` on it:
    ```bash
    cd /opt/picklemypaddle/staging
-   f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1' | tr -d '\r')
-   sudo docker cp "pmp-staging-integrations-1:$f" /tmp/paddle-check.jpg && exiftool /tmp/paddle-check.jpg
-   rm /tmp/paddle-check.jpg
+   # The latest order that isn't a smoke test (the updater's smoke run places one after every site
+   # deploy, so "newest photo" is often its 1600x1200 test image). `</dev/null` stops docker from
+   # waiting on the terminal when piped; exiftool's "-" reads stdin, so no copy is left behind.
+   sudo docker exec pmp-staging-postgres-1 psql -U pmp -d pmp -tA -F' ' -c "select o.reference, o.created_at, ph.side, ph.path from photos ph join paddles p on p.id = ph.paddle_id join orders o on o.id = p.order_id where not o.is_smoke order by o.created_at desc, ph.side limit 2" </dev/null |
+   while read -r ref d t side path; do
+     echo "== $ref $d $t $side"
+     sudo docker exec pmp-staging-integrations-1 cat "/data/photos/$path" </dev/null | exiftool - | grep -E "Image Size|GPS|Make|Model|Date/Time Original" || echo "   no GPS, Make, Model or date taken"
+   done
    ```
-   It should show only file and JPEG basics: no GPS, camera make or model. Paste on SCRUM-66.
+   It should name your order's reference, show about 2560x1920 for a phone camera photo, and no
+   GPS, Make, Model or date-taken lines. Paste on SCRUM-66.
    (`exiftool` is in Ubuntu's `libimage-exiftool-perl` package.)
 
 ## Acceptance checks (SCRUM-34)
