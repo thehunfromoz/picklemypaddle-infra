@@ -347,15 +347,18 @@ journalctl -u pmp-staging-backup.service --since -2d  # the nightly runs (counts
 
 ### Restore by hand
 
-Into a scratch database first, to check a backup (this is the restore drill):
+Into a scratch database first, to check a backup (this is the restore drill). Take a backup
+first if tonight's hasn't run yet (`sudo /opt/picklemypaddle/staging/backup.sh`), and place a test
+order beforehand so there's something to count:
 
 ```bash
 cd /opt/picklemypaddle/staging
-f=$(sudo ls -t /var/backups/picklemypaddle/staging/db-*.dump | head -n1); echo "$f"
+# The folder is root-only, so the wildcard must be expanded by root (sudo sh -c), not your shell.
+f=$(sudo sh -c 'ls -t /var/backups/picklemypaddle/staging/db-*.dump | head -n1'); echo "$f"
 sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d pmp -c 'CREATE DATABASE restore_check'
 sudo cat "$f" | sudo docker compose -p pmp-staging exec -T postgres pg_restore -U pmp -d restore_check --no-owner
 for db in pmp restore_check; do
-  sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d $db -tAc 'select count(*) from orders'
+  echo -n "$db: "; sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d $db -tAc 'select count(*) from orders'
 done                                                  # the two counts should match
 sudo docker compose -p pmp-staging exec -T postgres psql -U pmp -d pmp -c 'DROP DATABASE restore_check'
 ```
@@ -366,7 +369,7 @@ To replace the live database with a backup (staging only, everything since that 
 sudo systemctl stop pmp-staging-update.timer
 sudo docker compose -p pmp-staging stop integrations
 sudo cat "$f" | sudo docker compose -p pmp-staging exec -T postgres pg_restore -U pmp -d pmp --clean --if-exists --no-owner
-p=$(sudo ls -t /var/backups/picklemypaddle/staging/photos-*.tar.gz | head -n1)
+p=$(sudo sh -c 'ls -t /var/backups/picklemypaddle/staging/photos-*.tar.gz | head -n1')
 sudo cat "$p" | sudo docker run --rm -i -v pmp-staging-photos:/dst postgres:18-alpine sh -c 'rm -rf /dst/* && tar -C /dst -xzf - && chown -R 1000:1000 /dst'
 sudo docker compose -p pmp-staging start integrations && sudo systemctl start pmp-staging-update.timer
 ```
@@ -470,10 +473,12 @@ integrations and site PRs are merged and show a green `staging/home-server` tick
 5. Check the stored photo has no location (SCRUM-66): copy it out and run `exiftool` on it:
    ```bash
    cd /opt/picklemypaddle/staging
-   f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1')
-   sudo docker compose -p pmp-staging cp "integrations:$f" /tmp/paddle-check.jpg && exiftool /tmp/paddle-check.jpg
+   f=$(sudo docker compose -p pmp-staging exec -T integrations sh -c 'ls -t /data/photos/*/*.jpg | head -n1' | tr -d '\r')
+   sudo docker cp "pmp-staging-integrations-1:$f" /tmp/paddle-check.jpg && exiftool /tmp/paddle-check.jpg
+   rm /tmp/paddle-check.jpg
    ```
    It should show only file and JPEG basics: no GPS, camera make or model. Paste on SCRUM-66.
+   (`exiftool` is in Ubuntu's `libimage-exiftool-perl` package.)
 
 ## Acceptance checks (SCRUM-34)
 
