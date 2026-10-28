@@ -22,7 +22,7 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
 apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
 SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
-website story 40, built 26 Oct), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+website story 40, built 26 Oct; part 2, from 28 Oct: emails 69, HubSpot 74, testimonial request 33), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -261,7 +261,15 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 - **Emails** (Resend) at key moments only: Submitted, Accepted, In queue, Posted back, Rejected.
   From sales@, Reply-To info@; questions to customers go by hand from info@. Attila's alert has
   the reference and admin link only. Outside production: `[TEST]` subjects and an allow-list of
-  Attila's addresses (everything else suppressed).
+  Attila's addresses (everything else suppressed). Built (SCRUM-69) as an outbox: queued with the
+  change, sent by a worker, retried; rendered at send time with a token minted per send (no token
+  at rest). Production won't start while a template has `[To confirm: …]`.
+- **Status changes** go through integrations `src/orders/transitions.ts` (built 28 Oct with
+  SCRUM-69; the admin UI is SCRUM-72), which also queues the email and, with SCRUM-74, the CRM sync.
+- **Testimonials (decided 28 Oct):** the Posted back email links to a short review form on the
+  private status page (text, first name and suburb pre-filled, a permission checkbox), stored with
+  the permission; Attila adds approved ones to the site by PR. No separate later email for now;
+  revisit after go-live.
 - **Status page:** minimal (no name, address, phone, email or photos); token in the URL
   fragment, stored hashed; expires 90 days after Completed (30 days after Rejected or Lapsed).
   "Email me my links" never reveals whether an address is known. References look like
