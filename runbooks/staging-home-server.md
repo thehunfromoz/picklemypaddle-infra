@@ -93,7 +93,7 @@ home folder is only a source to review and install from.
 Without a token everything still works. The results just don't show on GitHub. When the token
 expires, `install.sh --check` warns you; repeat these steps to replace it.
 
-### 4. API keys for the integrations service (when Stripe/HubSpot are built)
+### 4. API keys for the integrations service
 
 Staging keeps the integrations service's keys in **`/etc/picklemypaddle/integrations.env`**.
 `install.sh` creates it empty, owned by root with mode 600, and `--check` fails if anyone loosens
@@ -104,6 +104,13 @@ those permissions. Nothing else on home-server, and nothing in any repo, holds t
   accounts have no legacy private apps; create the key under Settings → Integrations → Service Keys
   with contacts, companies and deals read/write plus their schema scopes. The service refuses to
   start with a live Stripe key on staging. The error names the setting but never shows the key.
+- **Order emails (SCRUM-69):** `RESEND_API_KEY` (Resend → API Keys, name `staging home-server`,
+  "Sending access", domain `picklemypaddle.com` only) and `EMAIL_ALLOWLIST`, the only addresses
+  staging may email (comma-separated; plus-addressing allowed). The allow-list must include
+  `sales@picklemypaddle.com`, where the new-order alert goes. **The service won't start on staging
+  without an allow-list.** Everything else is recorded as suppressed and never sent; subjects
+  start `[TEST]`. Smoke-test orders send nothing. Status links in emails point at
+  `STAGING_PUBLIC_URL` (the tailnet address once `--tailscale` has run).
 - Edit it with `sudo nano /etc/picklemypaddle/integrations.env`, then apply with
   `cd ~/picklemypaddle-infra && sudo ./staging/install.sh`.
 - `APP_ENV`, `PORT` and `PUBLIC_SITE_ORIGIN` are fixed in `compose.staging.yml`, so this file

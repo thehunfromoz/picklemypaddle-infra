@@ -84,6 +84,9 @@ services:
       PORT: "8080"
       # Every address staging is opened from (CORS); install.sh --tailscale adds the tailnet one.
       PUBLIC_SITE_ORIGIN: ${STAGING_SITE_ORIGINS:-http://home-server:8088}
+      # SCRUM-69: where status links in emails point. The tailnet address once install.sh
+      # --tailscale has run, so the links work from Attila's phone anywhere.
+      SITE_URL: ${STAGING_PUBLIC_URL:-http://home-server:8088}
       # SCRUM-67: X-Forwarded-For is believed only from the gateway (resolved on the network).
       TRUSTED_PROXIES: gateway
       # The smoke tests, Tailscale visitors and Attila's own tests all reach the service from the
