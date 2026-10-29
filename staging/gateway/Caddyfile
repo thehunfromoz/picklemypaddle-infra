@@ -13,6 +13,9 @@
 # The blog editor (SCRUM-34) has its own listener, :8081, which compose publishes on
 # 127.0.0.1 only, for Tailscale Serve (https://home-server.<tailnet>.ts.net:8444).
 # The LAN listener (:80) answers 404 for the editor's paths.
+#
+# The order admin (SCRUM-71/72) likewise: listener :8082, published on 127.0.0.1 only, for
+# Tailscale Serve (https://home-server.<tailnet>.ts.net:8445). The LAN listener answers 404 for /admin.
 {
 	admin off
 	auto_https off
@@ -51,6 +54,10 @@
 		respond "Not found" 404
 	}
 	handle /api/keystatic* {
+		respond "Not found" 404
+	}
+	# Never the order admin on this listener (SCRUM-71): it is Tailscale-only, on :8082.
+	handle /admin* {
 		respond "Not found" 404
 	}
 
@@ -97,6 +104,35 @@
 		Referrer-Policy "same-origin"
 		-Server
 	}
+	log {
+		output stdout
+		format console
+	}
+}
+
+# The order admin (SCRUM-71/72). Reachable only from this machine (127.0.0.1, see compose.staging.yml),
+# which means only through Tailscale Serve:
+#   https://home-server.<tailnet>.ts.net:8445 → 127.0.0.1:8090 → here → integrations-admin:8081
+# Tailscale Serve strips any Tailscale-User-* headers a client sends and adds the signed-in user's;
+# they pass through untouched. integrations believes them only when the connection comes from this
+# gateway over the private admin network (that's why the target is the integrations-admin alias, which
+# only resolves there), and lets in only the logins in ADMIN_LOGINS. It sets its own no-store, DENY and CSP.
+:8082 {
+	# (integrations sends its own noindex, no-store, DENY and CSP on every admin response.)
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	# Only the admin's own paths; nothing else of integrations is on this listener.
+	handle /admin* {
+		reverse_proxy integrations-admin:8081
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	header -Server
 	log {
 		output stdout
 		format console

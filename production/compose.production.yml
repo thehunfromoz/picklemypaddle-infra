@@ -3,6 +3,13 @@
 #   internet ──► :80 / :443 ──► gateway (Caddy, automatic HTTPS) ──► site
 #                                                                 └──► integrations (/api/*) ──► postgres
 #
+#   tailnet  ──► https://pmp-prod.<tailnet>.ts.net (Tailscale Serve, :443 on the tailnet only)
+#                ──► 127.0.0.1:8090 ──► gateway :8082 ──► integrations admin :8081  (order admin, SCRUM-71/72)
+#   The admin listener is published on loopback ONLY, so only Tailscale Serve on this machine reaches
+#   it; the gateway talks to the admin over its own internal network (pmp-production-admin), and
+#   integrations believes Tailscale's identity headers only from the gateway there. The public sites
+#   answer 404 for /admin. Tailscale Serve is set up by hand (runbooks/production-ovh-vps.md).
+#
 # www.<domain> is the canonical address; the bare domain redirects to it.
 #
 # ORDERS ARE OFF until Attila switches them on (SCRUM-68): integrations and postgres are in the
@@ -36,6 +43,8 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp" # HTTP/3
+      # The order admin's listener (SCRUM-71): loopback ONLY, for Tailscale Serve. Never 0.0.0.0.
+      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8090}:8082"
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-picklemypaddle.com}
       ACME_EMAIL: ${ACME_EMAIL:-sales@picklemypaddle.com}
@@ -48,8 +57,12 @@ services:
       # Certificates and the ACME account. Must survive restarts and re-installs:
       # Let's Encrypt limits how many certificates one name may be issued per week.
       - caddy_data:/data
-    # One network per website the gateway serves (just Pickle My Paddle for now).
-    networks: [production]
+    # One network per website the gateway serves (just Pickle My Paddle for now), plus the order
+    # admin's private network (SCRUM-71), where its address is the only one integrations' admin trusts.
+    networks:
+      production: {}
+      admin:
+        aliases: [admin-gateway]
     read_only: true
     tmpfs: [/config]
     cap_drop: [ALL]
@@ -105,6 +118,12 @@ services:
       PORT: "8080"
       PUBLIC_SITE_ORIGIN: https://www.${SITE_DOMAIN:-picklemypaddle.com}
       TRUSTED_PROXIES: gateway
+      # SCRUM-71/72: the order admin's own listener, reached only by the gateway over the admin network.
+      # ADMIN_LOGINS (Attila's Tailscale login) goes in the root-only secrets file.
+      ADMIN_PORT: "8081"
+      ADMIN_TRUSTED_PROXIES: admin-gateway
+      # Where Attila's new-order alert links to: the VPS's tailnet address.
+      ADMIN_URL: ${ADMIN_URL:-https://pmp-prod.tail8bc7ae.ts.net}
     # Live keys only, plus DATABASE_URL; root-only, like staging's. Optional here so the stack
     # still validates before the file exists; the service itself refuses to start without it.
     env_file:
@@ -119,6 +138,9 @@ services:
       production:
         aliases: [pmp-integrations]
       db: {}
+      # SCRUM-71: the gateway reaches the admin at this name, from its admin-network address.
+      admin:
+        aliases: [pmp-integrations-admin]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -157,6 +179,10 @@ networks:
   # The order database's own network: internal, joined only by postgres and integrations.
   db:
     name: pmp-production-db
+    internal: true
+  # The order admin's network (SCRUM-71): internal, joined only by the gateway and integrations.
+  admin:
+    name: pmp-production-admin
     internal: true
 
 volumes:

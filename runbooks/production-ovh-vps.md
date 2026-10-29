@@ -131,6 +131,47 @@ sudo /opt/picklemypaddle/production/update.sh rollback
 This redeploys the release that ran before the last successful deploy (through the same checks).
 `update.sh status` names it as the "rollback target".
 
+## Tailscale and the order admin (SCRUM-71)
+
+The VPS is on the tailnet so the order admin never faces the internet.
+
+- **Installed** from Tailscale's official apt repository for Ubuntu 26.04 (`resolute`), with the
+  signing key and source list added by hand (not by piping the install script); the
+  `tailscale-archive-keyring` package keeps the key current, and unattended-upgrades updates
+  Tailscale with everything else. `tailscaled` starts at boot.
+- **Device:** joined with `sudo tailscale up --hostname=pmp-prod --advertise-tags=tag:pmp-prod`
+  (no `--ssh`: Tailscale SSH is off, normal SSH key login is unchanged). Name `pmp-prod`,
+  address `pmp-prod.tail8bc7ae.ts.net`. **Key expiry: disabled** (the default for tagged devices).
+- **Tailnet policy** (admin console → Access controls): `tag:pmp-prod` is owned by
+  `autogroup:admin`; your own devices may reach `tag:pmp-prod` on **TCP 443 only**; no grant has
+  `tag:pmp-prod` as its source, so the VPS can't open connections into the tailnet. The `funnel`
+  node attribute is removed, so Funnel can't be switched on anywhere. The policy's `tests` block
+  checks all of this on every save.
+- **Firewall:** ufw is unchanged (22 rate-limited, 80, 443/tcp, 443/udp). Nothing is opened for
+  Tailscale: its traffic arrives over the encrypted tunnel, and Serve answers inside `tailscaled`.
+- **The admin:** `https://pmp-prod.tail8bc7ae.ts.net/admin`. Tailscale Serve on the tailnet's port
+  443 forwards to the gateway's admin listener, which compose publishes on `127.0.0.1:8090` only.
+  The gateway reaches integrations' admin port (8081) over the internal `pmp-production-admin`
+  network, and integrations believes Tailscale's identity headers only from there and lets in
+  only `ADMIN_LOGINS`. The public site answers 404 for `/admin`. **Until orders are switched on,
+  the admin listener answers 503** (integrations isn't running).
+
+### Serve the admin (once)
+
+After `git pull && sudo ./production/install.sh` has added the admin listener:
+
+```bash
+curl -s http://127.0.0.1:8090/gateway-healthz            # ok
+sudo tailscale serve status                               # nothing yet (no other Serve on the VPS)
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8090
+sudo tailscale serve status                               # https://pmp-prod.tail8bc7ae.ts.net (tailnet only) → proxy http://127.0.0.1:8090
+sudo tailscale funnel status                              # must say no Funnel
+```
+
+Never use `tailscale funnel`. To stop serving it: `sudo tailscale serve --https=443 off`.
+The first time, Tailscale fetches the certificate for `pmp-prod.tail8bc7ae.ts.net`, which takes a
+few seconds.
+
 ## Orders: off until you switch them on (SCRUM-64, SCRUM-68)
 
 Production must not take orders before SCRUM-8 and the security epic SCRUM-21 are signed off,
@@ -160,6 +201,7 @@ Only once the sign-offs above are recorded in Jira. You'll need an integrations 
    ```bash
    pw=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' /etc/picklemypaddle/postgres.env)
    echo "DATABASE_URL=postgres://pmp:${pw}@postgres:5432/pmp" | sudo tee -a /etc/picklemypaddle/integrations.env >/dev/null; unset pw
+   echo "ADMIN_LOGINS=<your Tailscale login>" | sudo tee -a /etc/picklemypaddle/integrations.env >/dev/null   # SCRUM-71
    sudo chmod 600 /etc/picklemypaddle/integrations.env
    ```
 3. **The settings** in `/opt/picklemypaddle/production/.env`: `COMPOSE_PROFILES=orders`,
@@ -174,7 +216,8 @@ Only once the sign-offs above are recorded in Jira. You'll need an integrations 
    with test-mode Stripe keys or relaxed abuse limits.
 5. **Open the door:** `sudo ./production/install.sh` (from `~/picklemypaddle-infra`) recreates the
    gateway with `PMP_ORDERS=open`. Then from your Mac: `curl -s https://www.picklemypaddle.com/api/orders/form`
-   should give `{"open":true,…}`, and the order form no longer says "opens soon".
+   should give `{"open":true,…}`, and the order form no longer says "opens soon". The admin now
+   answers too: open `https://pmp-prod.tail8bc7ae.ts.net/admin` on your phone or Mac.
 6. **Nightly backups:** create the timer (production has no auto-update timer by design, so this
    one is made by hand):
    ```bash

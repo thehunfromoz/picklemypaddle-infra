@@ -24,5 +24,40 @@ http://:8081 {
 	}
 }
 
+# The order admin (SCRUM-71/72). Plain HTTP on a container port that compose publishes on the
+# host's loopback ONLY (127.0.0.1:8090), for Tailscale Serve on this machine:
+#   https://pmp-prod.<tailnet>.ts.net ─► Tailscale Serve ─► 127.0.0.1:8090 ─► here ─► pmp-integrations-admin:8081
+# Serve strips any Tailscale-User-* headers a client sends and adds the signed-in user's; they pass
+# through untouched. integrations believes them only from this gateway on the private admin network
+# (the pmp-integrations-admin alias only resolves there) and lets in only ADMIN_LOGINS.
+# Closed (503) until orders are switched on, like /api/*.
+http://:8082 {
+	handle /gateway-healthz {
+		respond "ok" 200
+	}
+
+	handle /admin* {
+		@closed expression `"{$PMP_ORDERS:closed}" != "open"`
+		header @closed {
+			Content-Type "text/plain; charset=utf-8"
+			Cache-Control "no-store"
+			X-Robots-Tag "noindex, nofollow"
+			X-Frame-Options "DENY"
+		}
+		respond @closed "The order admin is off until orders are switched on (runbooks/production-ovh-vps.md)." 503
+		reverse_proxy pmp-integrations-admin:8081
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	header -Server
+	log {
+		output stdout
+		format console
+	}
+}
+
 # One file per website. A file that does not end in .caddy is ignored.
 import /etc/caddy/sites/*.caddy
