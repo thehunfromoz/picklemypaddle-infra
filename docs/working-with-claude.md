@@ -19,31 +19,43 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 | `picklemypaddle-agents` | TypeScript/Node 22: helper agents (all parked) |
 | `picklemypaddle-infra` | Staging and production stacks, updaters, shared CI workflows, runbooks, this guide |
 
-Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
-apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
-SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
-website story 40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 and testimonial request 33 built, each
-waiting only on a staging check that needs the admin page; part 3, 29 Oct: admin 71/72 built (integrations #14, infra
-PR #32), waiting on merge, Attila's Tailscale Serve steps and his phone walk-through; queue 73 built
-(integrations #15 on #14, site #52); next: 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
-SCRUM-21 security/privacy.
+Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Statuses below as of 29 Oct 2026; Jira is
+the record. Epics:
+
+- **SCRUM-6 platform:** done apart from 20 (production releases), BLOCKED until the first
+  production release.
+- **SCRUM-7 website:** launch gates 31 (privacy and terms: ABN, postage, lost/damaged; BLOCKED) and
+  79 (About photo, measured paddle weight), plus 35 (analytics, needed for launch). 32 (gallery) and
+  33 (testimonials, built) are BLOCKED on real re-grits and real customers; 41 is parked.
+- **SCRUM-8 orders** (stories 64–75, refined 26 Oct 2026): part 1, 64–68 and 70 with website story
+  40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 built, waiting on its admin
+  staging check; part 3, 29 Oct: admin 71/72 built (integrations #14, infra PR #32), waiting on
+  merge, Attila's Tailscale Serve steps and his phone walk-through; queue 73 built (integrations
+  #15 on #14, site #52); next: 75. Also launch gates 63 (discount codes) and bug 76 (iPhone photos).
+- **SCRUM-11 launch:** its "is blocked by" links are the launch checklist.
+- SCRUM-9 payments, SCRUM-10 clubs, SCRUM-12 agents, SCRUM-21 security/privacy.
 
 ## How we work
 
 - **Quiz before building:** every story gets acceptance criteria, tests and a Definition of
   Done (CI green, deployed to staging with a green `staging/home-server` tick, Attila's
   approval where the story says so) before work starts.
-- **Jira statuses (Claude moves tickets):** the workflow is To Do → In Progress → Done. On
-  the Task tickets checked on 22 Oct 2026 (SCRUM-59 to 61) Jira offers only **Begin Work
-  (id 2)** and **Done (id 3)**. The longer ladder this guide used to list (Open, In Review,
-  QA, MERGE, Blocked, Assessment; ids 11 to 24) is not offered, and **id 3 is Done, not
-  Blocked**, so never reuse the old ids. List the ticket's transitions
-  (`getTransitionsForJiraIssue`) before moving it, and check a Story's the same way: Stories
-  offer the full ladder, where **In Progress is 18 and Done is 21, while 3 is BLOCKED and 2 is
-  CLOSED** (SCRUM-34, 23 Oct 2026), so the Task ids mean something else there. Move a
-  ticket to In Progress when work starts. If it is waiting on Attila, or a check failed, leave
-  it In Progress and say so in a comment, with exactly what is needed. Move it to Done only
-  once the acceptance checks are verified and Attila has approved where the ticket says so.
+- **Jira statuses (Claude moves tickets).** List the ticket's transitions
+  (`getTransitionsForJiraIssue`) before moving it: the ids differ by issue type. **Stories and
+  Bugs** (checked 29 Oct 2026): To Do 11, In Progress 18, **BLOCKED 3**, Done 21, Assessment 23
+  (parked), CLOSED 2; there is no transition back to BACKLOG. **Tasks** (SCRUM-59 to 61, 22 Oct)
+  offer only Begin Work (2) and **Done (3)**, so never reuse ids across types.
+  - **In Progress** only while the work is actively going on, including fixing a failed check.
+  - **BLOCKED** whenever it is waiting on anything else: Attila (an approval, a manual step, a
+    decision, content), another story, the launch, or real customers. Every move to BLOCKED gets
+    an "is blocked by" link to what it waits on (the epic, such as SCRUM-11, when no story fits)
+    and a comment saying exactly what is needed, from whom, and when. Move it back to In Progress
+    when the work resumes.
+  - Don't leave a story in MERGE (or another in-between status) once its PR is merged.
+  - **Done** only once the acceptance checks are verified and Attila has approved where the
+    ticket says so. A loose end that doesn't affect the story's purpose can go to a new linked
+    story (as SCRUM-79 did for SCRUM-30) instead of holding it open.
+  - Anything that must be finished before go-live "blocks" SCRUM-11.
 - **Before marking anything Blocked or Done, verify it** (CI results, commit statuses,
   `version.txt`). Don't assume.
 - **Only Attila merges to `main`.** Rulesets enforce PRs and passing checks on all repos.
