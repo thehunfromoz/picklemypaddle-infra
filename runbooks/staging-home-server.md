@@ -322,6 +322,56 @@ then pull request and merge as above.
 | The PR's checks fail on the post | Open the failing check's annotation. The usual causes: a summary outside 70 to 160 characters, a top-level (Heading 1) heading in the body (the title is the page's only one, so start at Heading 2), or a cover image without a description. The editor now refuses the first two while you write (site PR #43), but a post started before that, or edited by hand, can still have them. Fix it in the editor on the same branch; the PR updates. |
 | The editor shows an old version | It updates with the site; `sudo docker compose -p pmp-staging ps editor` shows its state. A failed editor image is rolled back like the site and reported as `staging/home-server/editor` on its commit. |
 
+## Order admin over Tailscale (SCRUM-71/72)
+
+Work orders from any of your tailnet devices, phone included, at
+**https://home-server.tail8bc7ae.ts.net:8445/admin**: review photos, move orders through their
+statuses (the customer's emails go out automatically), add notes, retry a failed email or HubSpot
+sync. On staging an Accepted order also has **Mark paid (test)**, standing in for Stripe.
+
+How it's kept private (the same shape as the editor):
+
+- **Tailscale only.** integrations serves the admin on its own port (8081), which the LAN
+  gateway never routes: `http://home-server:8088/admin` is 404. The gateway's admin listener is
+  published on `127.0.0.1:8090` only, and Tailscale Serve forwards `:8445` there. The tailnet
+  policy lets only your own devices reach home-server.
+- **Your Tailscale login decides who gets in.** Tailscale Serve strips any `Tailscale-User-*`
+  headers a client sends and adds the signed-in user's. integrations believes them only when the
+  connection comes from the gateway over the private `pmp-staging-admin` network (another
+  container on the staging network gets 403), and lets in only the logins in `ADMIN_LOGINS`
+  (403 otherwise; 503 until one is set). Tagged devices have no login, so they can't get in.
+- **No caching, no framing, no scripts:** every admin page is `no-store`, `DENY`, with a CSP
+  that allows no JavaScript; forms carry a CSRF token and must come from the admin's own pages.
+- Anyone with a shell on home-server can reach `127.0.0.1:8090` and claim any login. That's the
+  same trust as root on the box, which can read the database anyway.
+
+### Set it up (once)
+
+```bash
+cd ~/picklemypaddle-infra && git pull
+sudo ./staging/install.sh                     # adds the admin network and the loopback listener; LAN check: /admin is 404
+sudo ./staging/install.sh --set-admin-logins  # your Tailscale login (admin console → Users), e.g. you@example.com
+sudo ./staging/install.sh --tailscale         # adds https://…:8445 for the admin (8443 and 8444 unchanged)
+```
+
+`--set-admin-logins` saves `ADMIN_LOGINS` in `/etc/picklemypaddle/integrations.env`, restarts
+integrations and checks the admin lets that login in on the loopback listener. `--tailscale`
+refuses to change anything if port 8445 is taken or has Funnel on, and undoes its own change if
+anything else in Serve moved, exactly as for 8443 and 8444. The ports are
+`TAILSCALE_ADMIN_HTTPS_PORT` and `ADMIN_LOCAL_PORT` in `/opt/picklemypaddle/staging/.env`.
+
+On your phone: open the address with Tailscale on, then Share → **Add to Home Screen**.
+
+### If something's wrong
+
+| Symptom | Fix |
+| --- | --- |
+| `…:8445` doesn't load, `…:8443` does | The admin port isn't served: `sudo ./staging/install.sh --tailscale`. Check: `tailscale serve status` lists `:8445 → 127.0.0.1:8090`. |
+| "The admin is not set up yet: ADMIN_LOGINS is empty" (503) | `sudo ./staging/install.sh --set-admin-logins`. |
+| "this Tailscale login may not use the admin" (403) | The device is signed in to Tailscale as someone else, or your login differs from what you entered: Tailscale admin console → Users shows it. Re-run `--set-admin-logins`. |
+| "no Tailscale identity" (403) | You opened it from a tagged device, or not through `…:8445`. |
+| 502 from `…:8445` | integrations isn't running the admin yet (an image before SCRUM-71) or is restarting: `sudo docker compose -p pmp-staging ps integrations`. |
+
 ## Order database (SCRUM-64)
 
 The integrations service's own Postgres is the order of record. On home-server:

@@ -23,7 +23,9 @@ Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 plat
 apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
 SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
 website story 40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 and testimonial request 33 built, each
-waiting only on a staging check that needs the admin page; next: admin 71/72, then 73 and 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+waiting only on a staging check that needs the admin page; part 3, 29 Oct: admin 71/72 built (integrations #14, infra
+PR #32), waiting on merge, Attila's Tailscale Serve steps and his phone walk-through; queue 73 built
+(integrations #15 on #14, site #52); next: 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -189,6 +191,17 @@ through GitHub commit statuses, or Attila pastes command output.
   pmp-staging-update.service` (the smoke run takes about 6 min).
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
+- **NSW public holidays (SCRUM-73)** live in integrations `src/orders/holidays.ts` (nsw.gov.au,
+  two years ahead). Its coverage test fails once they don't reach 12 months ahead: add the next
+  year then, not by guessing.
+- **Order admin (SCRUM-71/72):** `https://home-server.tail8bc7ae.ts.net:8445/admin` (tailnet only)
+  → Tailscale Serve → the gateway's third listener (`:8082`, published on `127.0.0.1:8090` only) →
+  `integrations-admin:8081` over the internal `pmp-staging-admin` network. The LAN listener 404s
+  `/admin*`. integrations believes `Tailscale-User-Login` only from the gateway on that network and
+  lets in only `ADMIN_LOGINS` (root-only secrets file; `install.sh --set-admin-logins`). Production:
+  `https://pmp-prod.tail8bc7ae.ts.net/admin` (Serve on the tailnet's 443 → `127.0.0.1:8090`),
+  503 until orders are on. In tests and CI, fake the identity headers on the loopback listener
+  (`tests/helpers/admin.ts`, `tests/e2e/server.ts`).
 - **Tailscale (SCRUM-38):** staging is also at `https://home-server.tail8bc7ae.ts.net:8443`
   (tailnet only, never Funnel), via `install.sh --tailscale` / `--tailscale-off`. Port 443
   on that name serves another app (`localhost:3000`): never touch it. CORS origins are
@@ -211,6 +224,9 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 `src/lib/order-rules.ts` is a byte-identical copy that its tests compare with integrations `main`.
 
 ## Production (OVH VPS-1, Sydney; SCRUM-19)
+
+- **On the tailnet** as `pmp-prod` (`tag:pmp-prod`, key expiry off, no Tailscale SSH; SCRUM-71). The
+  tailnet policy lets Attila's devices reach it on TCP 443 only, and nothing reach out from it.
 
 - https://www.picklemypaddle.com (the bare domain redirects to it). A Caddy gateway with automatic
   HTTPS in front of the site. Integrations and Postgres are defined but **orders are off**: they sit

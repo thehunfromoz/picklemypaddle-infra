@@ -12,6 +12,9 @@
 #   8. turning it off removes only staging's port and restores .env
 #   9. turning it off refuses to remove a port staging doesn't own
 #  10. the blog editor's port (SCRUM-34) taken by something else: refused before any change
+#  11. the order admin's port (SCRUM-71) taken by something else: refused before any change
+#  12. the admin answers but no login is set yet: a warning, not a failure; an unexpected answer fails
+#  13. the gateway's admin listener isn't up (old install): refused before any change
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +23,7 @@ trap 'rm -rf "$WORK"' EXIT
 HOST="home-server.tail8bc7ae.ts.net"
 TS_URL="https://$HOST:8443"
 ED_URL="https://$HOST:8444"
+AD_URL="https://$HOST:8445"
 
 pass() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 die() { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; [[ -f "$WORK/out" ]] && sed 's/^/    | /' "$WORK/out" >&2; exit 1; }
@@ -75,7 +79,12 @@ if url.startswith("https://"):
     if port not in cfg.get("TCP", {}):
         sys.exit(7)
 path = "/" + url.split("/", 3)[3] if url.count("/") >= 3 else "/"
-if "-D" in args:
+if path.startswith("/admin") and "-w" in args:
+    # The order admin through Serve (SCRUM-71): FAKE_ADMIN_CODE stands in for integrations' answer.
+    print(os.environ.get("FAKE_ADMIN_CODE", "200"), end="")
+elif path == "/gateway-healthz" and url.startswith("http://127.0.0.1:8090") and os.environ.get("FAKE_ADMIN_DOWN"):
+    sys.exit(7)
+elif "-D" in args:
     if path == "/api/status":
         print(f"HTTP/2 200\naccess-control-allow-origin: {origin}" if os.environ.get("FAKE_CORS", "ok") == "ok" else "HTTP/2 200")
     else:
@@ -123,11 +132,14 @@ grep -q "\"$HOST:8443\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8
 grep -q '"8444": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8444 (editor) not served over HTTPS"
 grep -q "\"$HOST:8444\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8089\"}}}" "$WORK/serve.json" || die "1. :8444 doesn't point at the editor's loopback listener"
 grep -q "blog editor answers at $ED_URL/keystatic" "$WORK/out" || die "1. editor not confirmed over Tailscale"
+grep -q '"8445": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8445 (admin) not served over HTTPS"
+grep -q "\"$HOST:8445\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8090\"}}}" "$WORK/serve.json" || die "1. :8445 doesn't point at the admin's loopback listener"
+grep -q "order admin answers at $AD_URL/admin and lets your Tailscale login in" "$WORK/out" || die "1. admin not confirmed over Tailscale"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "$TS_URL" ]] || die "1. STAGING_PUBLIC_URL not switched"
 [[ "$(env_val STAGING_SITE_ORIGINS)" == "http://home-server:8088,$TS_URL" ]] || die "1. origins: $(env_val STAGING_SITE_ORIGINS)"
 grep -q "up -d --pull never --no-deps integrations" "$WORK/docker.log" || die "1. integrations not restarted"
 grep -q "/api accepts calls from $TS_URL" "$WORK/out" || die "1. CORS not confirmed"
-pass "1. serves $TS_URL → staging and $ED_URL → editor (loopback), :443 untouched, .env updated, integrations restarted"
+pass "1. serves $TS_URL → staging, $ED_URL → editor and $AD_URL → admin (loopback), :443 untouched, .env updated, integrations restarted"
 
 # 2 ── again
 before="$(cat "$WORK/serve.json")"; env_before="$(cat "$STACK_DIR/.env")"
@@ -177,6 +189,7 @@ run --tailscale-off || die "8. --tailscale-off failed"
 other_app_untouched || die "8. the :443 app changed"
 ! grep -q '"8443"' "$WORK/serve.json" || die "8. :8443 still served"
 ! grep -q '"8444"' "$WORK/serve.json" || die "8. :8444 (editor) still served"
+! grep -q '"8445"' "$WORK/serve.json" || die "8. :8445 (admin) still served"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "http://home-server:8088" ]] || die "8. STAGING_PUBLIC_URL not restored"
 [[ "$(env_val STAGING_SITE_ORIGINS)" == "http://home-server:8088" ]] || die "8. origins: $(env_val STAGING_SITE_ORIGINS)"
 run --tailscale-off || die "8. second --tailscale-off failed"
@@ -197,3 +210,31 @@ grep -q "already served by Tailscale" "$WORK/out" || die "10. unclear message"
 [[ "$(cat "$WORK/serve.json")" == "$ed_taken" ]] || die "10. changed Serve (staging's port must not be added first)"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "http://home-server:8088" ]] || die "10. .env changed"
 pass "10. refuses an editor port already in use, before changing anything"
+
+# 11 ── the admin's port is someone else's: refused before anything is served
+ad_taken="{\"TCP\":{\"8445\":{\"HTTPS\":true}},\"Web\":{\"$HOST:8445\":{\"Handlers\":{\"/\":{\"Proxy\":\"http://127.0.0.1:9999\"}}}}}"
+reset "$ad_taken"
+! run --tailscale || die "11. accepted an admin port in use"
+grep -q "already served by Tailscale" "$WORK/out" || die "11. unclear message"
+[[ "$(cat "$WORK/serve.json")" == "$ad_taken" ]] || die "11. changed Serve (no port may be added first)"
+[[ "$(env_val STAGING_PUBLIC_URL)" == "http://home-server:8088" ]] || die "11. .env changed"
+pass "11. refuses an admin port already in use, before changing anything"
+
+# 12 ── the admin's answer through Tailscale
+reset "$OTHER_APP"
+FAKE_ADMIN_CODE=503 run --tailscale || die "12. failed when no admin login is set yet"
+grep -q "no one may sign in yet: sudo ./staging/install.sh --set-admin-logins" "$WORK/out" || die "12. no hint to set the admin logins"
+reset "$OTHER_APP"
+FAKE_ADMIN_CODE=502 run --tailscale || die "12. failed on an integrations image without the admin"
+grep -q "predates SCRUM-71" "$WORK/out" || die "12. no hint about the old integrations image"
+reset "$OTHER_APP"
+! FAKE_ADMIN_CODE=000 run --tailscale || die "12. accepted an admin that doesn't answer"
+pass "12. warns when no admin login is set or the image is old; fails when the admin doesn't answer"
+
+# 13 ── the gateway's admin listener isn't there yet (staging not re-installed)
+reset "$OTHER_APP"
+! FAKE_ADMIN_DOWN=1 run --tailscale || die "13. went ahead without the admin listener"
+grep -q "admin listener isn't answering" "$WORK/out" || die "13. unclear message"
+other_app_untouched || die "13. the :443 app changed"
+! grep -q '"8443"' "$WORK/serve.json" || die "13. served staging before checking the admin listener"
+pass "13. refuses before changing anything when the admin listener isn't up"

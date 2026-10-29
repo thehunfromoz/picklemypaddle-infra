@@ -26,7 +26,9 @@ Rules for this file:
 | Tickets | Jira `thehunfromoz.atlassian.net`, project SCRUM | Live |
 | Order database | Postgres 18 per stack, reachable only by integrations | Staging: live with SCRUM-64. Production: defined, off until orders are switched on |
 | Order backups | `/var/backups/picklemypaddle/<stack>` on each host, nightly, kept 30 days | Staging: timer installed by `install.sh`. Production: set up when orders open. Off-site copy: SCRUM-44 |
-| CRM and payments | HubSpot (test portal), Stripe (test mode) | Staging only, not wired up yet |
+| CRM and payments | HubSpot (test portal), Stripe (test mode) | HubSpot mirror live on staging (SCRUM-74); Stripe not wired up yet |
+| Tailnet | Tailscale, tailnet `tail8bc7ae.ts.net`: home-server, the VPS (`pmp-prod`, tagged) and Attila's devices | Live; VPS joined 28 Oct 2026 (SCRUM-71) |
+| Order admin | Tailnet only: staging `https://home-server.tail8bc7ae.ts.net:8445/admin`, production `https://pmp-prod.tail8bc7ae.ts.net/admin` | Added by SCRUM-71/72; production answers 503 until orders are on |
 
 ## OVH
 
@@ -69,6 +71,28 @@ Done by hand (SCRUM-19 status of 15 Oct); the rebuild run-sheet (later slice) wi
 - Docker and Compose installed from Ubuntu's packages.
 - Docker commands use `sudo`; `ubuntu` is **not** in the `docker` group (checked 20 Oct, as PR #15
   recommends), because that group is root-equivalent.
+
+## Tailscale (SCRUM-38, SCRUM-71)
+
+- **Tailnet:** `tail8bc7ae.ts.net`, MagicDNS and HTTPS certificates on. The login is Attila's;
+  the policy is edited in the Tailscale admin console (Access controls).
+- **home-server:** an owner device (not tagged). Tailscale Serve answers on `:8443` (staging),
+  `:8444` (blog editor) and `:8445` (order admin), set up by `staging/install.sh --tailscale`;
+  `:443` belongs to another app and is never touched. Never Funnel.
+- **The VPS:** device `pmp-prod`, tag `tag:pmp-prod`, joined 28 Oct 2026 with
+  `tailscale up --hostname=pmp-prod --advertise-tags=tag:pmp-prod` (no Tailscale SSH). Tailscale
+  1.104.4 at install, from Tailscale's official apt repository (key and list added by hand; the
+  `tailscale-archive-keyring` package keeps the key current). **Key expiry: disabled** (tagged
+  device default, confirmed in the admin console). Tailscale Serve on the tailnet's `:443` forwards
+  to the gateway's loopback-only admin listener (production runbook, "Tailscale and the order admin").
+- **Policy (28 Oct 2026):** the default allow-all grant was replaced. `tag:pmp-prod` is owned by
+  `autogroup:admin`. Attila's devices reach each other on all ports and `tag:pmp-prod` on TCP 443
+  only; nothing has `tag:pmp-prod` as its source, so the VPS can't open connections into the
+  tailnet. The `funnel` node attribute is removed. The policy's `tests` block checks: owner
+  allowed to home-server 22/443/8443/8444 and pmp-prod 443; owner denied pmp-prod 22/80/5432;
+  `tag:pmp-prod` denied to home-server. **When the admin's port 8445 on home-server is added to
+  the tests, add it as an owner-allowed port.**
+- **ufw on the VPS is unchanged**: nothing is opened for Tailscale.
 
 ## Cloudflare
 
@@ -145,6 +169,13 @@ backup at 02:30 Sydney time (`pmp-staging-backup.timer`) to `/var/backups/pickle
 (root, 700): a `pg_dump` and a photo archive, kept 30 days. Restore and reset steps are in the
 [runbook](../runbooks/staging-home-server.md#order-database-scrum-64).
 
+**Order admin (SCRUM-71/72):** integrations serves it on its own port (8081), which the public
+gateways never route (`/admin` is 404 on the LAN and public addresses). Each gateway has a third
+listener (`:8082`) published on `127.0.0.1:8090` only, which Tailscale Serve exposes on the tailnet;
+the gateway reaches the admin over an internal network (`pmp-staging-admin`, `pmp-production-admin`)
+that only it and integrations join. Who may sign in is `ADMIN_LOGINS` in each host's root-only
+integrations secrets file (staging: `install.sh --set-admin-logins`).
+
 **Orders in production (SCRUM-68):** `integrations` and `postgres` are defined in
 `production/compose.production.yml` (volumes `pmp-production-pgdata`, `pmp-production-photos`) but
 sit in the `orders` profile, and the gateway answers `/api/*` with 503 while `PMP_ORDERS` isn't
@@ -190,10 +221,11 @@ Names only; never the values.
 | Secret | Where | Notes |
 | --- | --- | --- |
 | GitHub commit-status token | `/etc/picklemypaddle/github-status.token` on home-server (root, 600) | Fine-grained token "home-server staging status", commit statuses on the site and integrations repos only; **expires 1 Oct 2027** |
-| Integrations keys, staging | `/etc/picklemypaddle/integrations.env` on home-server (root, 600) | `DATABASE_URL` (written by `install.sh`), `RESEND_API_KEY` and `EMAIL_ALLOWLIST` (SCRUM-69; the service won't start without the allow-list), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PORTAL_ID`; test values only |
+| Integrations keys, staging | `/etc/picklemypaddle/integrations.env` on home-server (root, 600) | `DATABASE_URL` (written by `install.sh`), `RESEND_API_KEY` and `EMAIL_ALLOWLIST` (SCRUM-69; the service won't start without the allow-list), `ADMIN_LOGINS` (SCRUM-71; personal, not secret), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PORTAL_ID`; test values only |
 | Blog editor, staging | `/etc/picklemypaddle/editor.env` on home-server (root, 600) | `KEYSTATIC_GITHUB_CLIENT_ID` and `KEYSTATIC_GITHUB_CLIENT_SECRET` (set with `install.sh --set-editor-app`; a new secret can be generated on the GitHub App's page), `KEYSTATIC_SECRET` (cookie key, generated by `install.sh`). No production equivalent |
 | Order database password, staging | `/etc/picklemypaddle/postgres.env` on home-server (root, 600) | `POSTGRES_PASSWORD`, made once by `install.sh`; the data volume only opens with it. `install.sh` also writes the matching `DATABASE_URL` into the staging integrations file above |
-| Integrations keys, production | `/etc/picklemypaddle/integrations.env` on the VPS (root, 600) | Not created yet; live keys only, plus `RESEND_API_KEY` (production refuses to start without it) and `DATABASE_URL` |
+| Integrations keys, production | `/etc/picklemypaddle/integrations.env` on the VPS (root, 600) | Not created yet; live keys only, plus `RESEND_API_KEY` (production refuses to start without it), `DATABASE_URL` and `ADMIN_LOGINS` |
+| Tailscale node keys | Inside `tailscaled`'s state on each machine (root) | Nothing to copy or rotate by hand; the VPS's key doesn't expire (tagged) |
 | Order database password, production | `/etc/picklemypaddle/postgres.env` on the VPS (root, 600) | Not created yet; made when orders are switched on |
 | VPS SSH key | Private key on Attila's Mac only; passphrase in Apple Passwords | Public half is in the VPS's `authorized_keys` |
 | 2FA recovery codes (OVH, Cloudflare, Resend, GitHub, Jira) | Attila's iCloud Notes, one note per service | 2FA codes themselves: Google Authenticator, synced to a Google account |
@@ -207,6 +239,7 @@ Names only; never the values.
 | One week after production's first HTTPS | Raise HSTS from one day to one year ([runbook](../runbooks/production-ovh-vps.md)) |
 | Monthly | Re-run production `install.sh` to pick up Caddy updates |
 | End of Nov 2026 | ABN, then register `picklemypaddle.com.au` and redirect it |
+| By 30 Dec 2026, then each December | Add the next year's NSW public holidays to integrations `src/orders/holidays.ts` (from nsw.gov.au); its coverage test fails once the list doesn't reach 12 months ahead (SCRUM-73) |
 | 14 Sep 2027 and 1 Oct 2027 | Reminders: add a payment method to OVH (none is stored) or plan to pay by hand |
 | 1 Oct 2027 | GitHub status token "home-server staging status" expires: make a new one, update the file on home-server |
 | Before 14 Oct 2027 | Renew `picklemypaddle.com` and the VPS at OVH (both bought 14 Oct 2026 for one year) |

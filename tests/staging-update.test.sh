@@ -24,6 +24,7 @@ REG="localhost:5000"
 IMG="$REG/pmp-test/site"
 PORT=18088
 EDITOR_PORT=18089
+ADMIN_PORT=18090 # the order admin's loopback listener (SCRUM-71)
 STATUSES="$WORK/statuses.log"
 export STACK_DIR="$WORK/stack" STATE_DIR="$WORK/state" HEALTH_TIMEOUT=60
 export GITHUB_API="http://127.0.0.1:9999" GITHUB_STATUS_TOKEN_FILE="$WORK/token"
@@ -133,6 +134,7 @@ sed -e "s|^STAGING_PORT=.*|STAGING_PORT=$PORT|" \
     -e "s|^EDITOR_IMAGE=.*|EDITOR_IMAGE=$REG/pmp-test/site-editor:staging|" \
     -e "s|^EDITOR_ENV_FILE=.*|EDITOR_ENV_FILE=$WORK/editor.env|" \
     -e "s|^EDITOR_LOCAL_PORT=.*|EDITOR_LOCAL_PORT=$EDITOR_PORT|" \
+    -e "s|^ADMIN_LOCAL_PORT=.*|ADMIN_LOCAL_PORT=$ADMIN_PORT|" \
     -e "s|^HEALTH_TIMEOUT=.*|HEALTH_TIMEOUT=60|" \
     "$ROOT/staging/.env.example" >"$STACK_DIR/.env"
 sleep 2
@@ -205,7 +207,15 @@ grep -q "^/repos/test/site/statuses/rev-ED2 Bearer test-token success staging/ho
   die "editor posted under the site's status name"
 bound="$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" port gateway 8081)"
 [[ "$bound" == "127.0.0.1:$EDITOR_PORT" ]] || die "editor listener published on $bound, not loopback only"
-pass "8. editor deploys under its own status name, loopback only; the LAN listener 404s its paths"
+# SCRUM-71: the order admin's listener likewise, and the LAN listener refuses its paths.
+bound="$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" port gateway 8082)"
+[[ "$bound" == "127.0.0.1:$ADMIN_PORT" ]] || die "admin listener published on $bound, not loopback only"
+for path in /admin /admin/orders; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT$path")"
+  [[ "$code" == 404 ]] || die "LAN listener answers $path with $code (expected 404)"
+done
+[[ "$(curl -fsS "http://127.0.0.1:$ADMIN_PORT/gateway-healthz")" == ok ]] || die "the gateway's admin listener isn't up on 127.0.0.1:$ADMIN_PORT"
+pass "8. editor deploys under its own status name, loopback only; the LAN listener 404s its paths and the admin's; the admin listener is loopback only"
 
 # 9 ── the order database (SCRUM-64)
 dc() { docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" "$@"; }

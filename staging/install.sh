@@ -10,6 +10,8 @@
 #   sudo ./staging/install.sh --tailscale-off  stop serving it over Tailscale
 #   sudo ./staging/install.sh --set-editor-app  store (or replace) the blog editor's GitHub App
 #                                          client ID and secret (SCRUM-34)
+#   sudo ./staging/install.sh --set-admin-logins  set the Tailscale login(s) allowed into the order
+#                                          admin (SCRUM-71/72)
 #
 # Safe to re-run: it keeps your existing /opt/picklemypaddle/staging/.env.
 # You run this by hand after reviewing a change; nothing runs it automatically.
@@ -30,14 +32,16 @@ IMAGES=(ghcr.io/thehunfromoz/picklemypaddle-site:staging ghcr.io/thehunfromoz/pi
 CHECK_ONLY=false
 SET_TOKEN=false
 SET_EDITOR_APP=false
+SET_ADMIN_LOGINS=false
 case "${1:-}" in
   --check) CHECK_ONLY=true ;;
   --set-token) SET_TOKEN=true ;;
   --set-editor-app) SET_EDITOR_APP=true ;;
+  --set-admin-logins) SET_ADMIN_LOGINS=true ;;
   --tailscale) exec "$SRC_DIR/tailscale.sh" on ;;
   --tailscale-off) exec "$SRC_DIR/tailscale.sh" off ;;
   "") ;;
-  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--tailscale|--tailscale-off]" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--set-admin-logins|--tailscale|--tailscale-off]" >&2; exit 2 ;;
 esac
 
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -138,6 +142,38 @@ if $SET_EDITOR_APP; then
   exit 0
 fi
 
+# SCRUM-71/72: who may sign in to the order admin. Their Tailscale login(s), as Tailscale Serve sends
+# them in Tailscale-User-Login (admin console → Users; e.g. you@example.com or you@github). Kept in
+# the root-only integrations secrets file beside EMAIL_ALLOWLIST: personal data, not for the repo.
+if $SET_ADMIN_LOGINS; then
+  [[ -f "$SECRETS_FILE" ]] || fail "staging isn't installed yet; run: sudo $0"
+  info "Order admin: Tailscale login(s) allowed in (Tailscale admin console → Users, the login under each name)"
+  read -rp "  Login(s), comma-separated: " logins
+  logins="$(tr -d '[:space:]' <<<"$logins" | tr '[:upper:]' '[:lower:]')"
+  [[ "$logins" =~ ^[^@,]+@[^@,]+(,[^@,]+@[^@,]+)*$ ]] || fail "that doesn't look like Tailscale logins (name@domain, comma-separated)"
+  secret_set "$SECRETS_FILE" ADMIN_LOGINS "$logins"
+  chown root:root "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
+  ok "saved to $SECRETS_FILE (root-only)"
+  if [[ -f "$DEST_DIR/compose.staging.yml" ]]; then
+    docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
+      up -d --pull never --no-deps --force-recreate integrations >/dev/null ||
+      fail "integrations didn't restart; see: sudo docker compose -p pmp-staging logs integrations"
+    port="$(sed -n 's/^ADMIN_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
+    first="${logins%%,*}"
+    for _ in $(seq 1 30); do
+      code="$(curl -s -o /dev/null -w '%{http_code}' -H "Tailscale-User-Login: $first" "http://127.0.0.1:${port:-8090}/admin/orders" || true)"
+      [[ "$code" == 200 ]] && break
+      sleep 2
+    done
+    if [[ "$code" == 200 ]]; then
+      ok "integrations restarted; the admin lets $first in (open it over Tailscale: sudo $0 --tailscale)"
+    else
+      fail "integrations restarted, but the admin answered $code for $first; check: sudo docker compose -p pmp-staging logs integrations"
+    fi
+  fi
+  exit 0
+fi
+
 info "Pre-flight checks"
 command -v docker >/dev/null || fail "Docker is not installed"
 docker info >/dev/null 2>&1 || fail "Docker daemon is not running"
@@ -179,6 +215,9 @@ if [[ -f "$SECRETS_FILE" ]]; then
   perms="$(stat -c '%a %U' "$SECRETS_FILE")"
   if [[ "$perms" == "600 root" ]]; then ok "integrations secrets file is root-only"; else
     fail "$SECRETS_FILE must be owned by root with mode 600 (is: $perms); fix: sudo chmod 600 $SECRETS_FILE && sudo chown root:root $SECRETS_FILE"; fi
+  if ! grep -q '^ADMIN_LOGINS=.\+' "$SECRETS_FILE"; then
+    printf '  \033[33m!\033[0m no one may sign in to the order admin yet (it answers 503).\n    Add your Tailscale login with: sudo %s --set-admin-logins\n' "$0"
+  fi
 else
   printf '  \033[33m!\033[0m %s will be created (empty; add TEST-mode keys later, see runbook)\n' "$SECRETS_FILE"
 fi
@@ -372,5 +411,20 @@ if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/keystati
 else
   fail "http://127.0.0.1:$PORT/keystatic should be 404 (the editor is Tailscale-only); re-run: sudo $0"
 fi
+
+# SCRUM-71: the order admin is on its own loopback-only listener, never on the LAN one.
+if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/admin/orders")" == 404 ]]; then
+  ok "the LAN address doesn't serve the order admin"
+else
+  fail "http://127.0.0.1:$PORT/admin/orders should be 404 (the admin is Tailscale-only); re-run: sudo $0"
+fi
+ADMIN_PORT="$(sed -n 's/^ADMIN_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
+ADMIN_PORT="${ADMIN_PORT:-8090}"
+case "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$ADMIN_PORT/admin/orders")" in
+  403) ok "order admin answers on 127.0.0.1:$ADMIN_PORT and refuses requests without a Tailscale login (Tailscale only: sudo $0 --tailscale)" ;;
+  503) ok "order admin answers on 127.0.0.1:$ADMIN_PORT; no one may sign in yet: sudo $0 --set-admin-logins" ;;
+  502) printf '  \033[33m!\033[0m the admin listener is up, but the integrations image predates SCRUM-71; it picks this up after its next update\n' ;;
+  *) fail "the order admin isn't answering on 127.0.0.1:$ADMIN_PORT; check: sudo docker compose -p pmp-staging logs gateway integrations" ;;
+esac
 
 info "Done. Open http://home-server:$PORT from your Mac (runbook: runbooks/staging-home-server.md)."

@@ -8,6 +8,12 @@
 #                 (Tailscale Serve → 127.0.0.1:${EDITOR_LOCAL_PORT}; published on loopback ONLY,
 #                  so the LAN can't reach it, and the LAN address answers 404 for /keystatic)
 #
+#   tailnet   ──► https://home-server.<tailnet>.ts.net:8445  ──► gateway :8082 ──► integrations :8081  (order admin, SCRUM-71/72)
+#                 (Tailscale Serve → 127.0.0.1:${ADMIN_LOCAL_PORT}; published on loopback ONLY. The gateway reaches
+#                  the admin over its own internal network, pmp-staging-admin, which only the gateway and
+#                  integrations join; integrations believes Tailscale's identity headers only from the gateway
+#                  there. The LAN listener answers 404 for /admin.)
+#
 #   integrations ──► postgres   (SCRUM-64: the order database, on its own internal network that only
 #                                integrations joins; no published port; data on a named volume)
 #
@@ -27,6 +33,8 @@ services:
       - "${STAGING_BIND:-0.0.0.0}:${STAGING_PORT:-8088}:80"
       # The blog editor's listener: loopback only, for Tailscale Serve (SCRUM-34). Never 0.0.0.0.
       - "127.0.0.1:${EDITOR_LOCAL_PORT:-8089}:8081"
+      # The order admin's listener (SCRUM-71): loopback only, for Tailscale Serve. Never 0.0.0.0.
+      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8090}:8082"
     environment:
       # The Tailscale address the editor is opened at. Must match the editor image's build
       # (EDITOR_HOST/EDITOR_PORT in the site's Dockerfile.editor) and the GitHub App's callback URL.
@@ -37,7 +45,11 @@ services:
     depends_on:
       site:
         condition: service_healthy
-    networks: [staging]
+    networks:
+      staging: {}
+      # SCRUM-71: the gateway's address on this network is the only one integrations' admin trusts.
+      admin:
+        aliases: [admin-gateway]
     read_only: true
     tmpfs: [/data, /config]
     cap_drop: [ALL]
@@ -93,6 +105,12 @@ services:
       # same Docker bridge address, so staging raises the per-IP limit. Production never does
       # (the service refuses to start there with a relaxed limit).
       ORDER_LIMIT_PER_IP_HOUR: ${STAGING_ORDER_LIMIT_PER_IP_HOUR:-60}
+      # SCRUM-71/72: the order admin's own listener, reached only by the gateway over the admin
+      # network. ADMIN_LOGINS (Attila's Tailscale login) is in the secrets file: install.sh --set-admin-logins.
+      ADMIN_PORT: "8081"
+      ADMIN_TRUSTED_PROXIES: admin-gateway
+      # Where Attila's new-order alert links to (the tailnet address of the admin).
+      ADMIN_URL: https://${EDITOR_PUBLIC_HOST:-home-server.tail8bc7ae.ts.net}:${TAILSCALE_ADMIN_HTTPS_PORT:-8445}
     # DATABASE_URL (SCRUM-64) is in the secrets file; install.sh writes it.
     env_file:
       - path: ${INTEGRATIONS_ENV_FILE:-/etc/picklemypaddle/integrations.env}
@@ -103,7 +121,13 @@ services:
     volumes:
       # Processed paddle photos (SCRUM-66): private, never served by the gateway or the site.
       - photos:/data/photos
-    networks: [staging, db]
+    networks:
+      staging: {}
+      db: {}
+      # SCRUM-71: the gateway reaches the admin at this name, so the connection comes from its
+      # admin-network address (the only one trusted), never from the shared staging network.
+      admin:
+        aliases: [integrations-admin]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -178,6 +202,10 @@ networks:
   # The database's own network: internal (no route out), joined only by postgres and integrations.
   db:
     name: pmp-staging-db
+    internal: true
+  # The order admin's network (SCRUM-71): internal, joined only by the gateway and integrations.
+  admin:
+    name: pmp-staging-admin
     internal: true
 
 volumes:

@@ -31,6 +31,14 @@ www.{$SITE_DOMAIN:picklemypaddle.com} {
 		respond "ok" 200
 	}
 
+	# Never the order admin here (SCRUM-71): it is on the tailnet only, through the gateway's
+	# loopback listener. integrations' public port has no admin routes either.
+	handle /admin* {
+		header Strict-Transport-Security "{$HSTS:max-age=86400}"
+		header Cache-Control "no-store"
+		respond "Not found" 404
+	}
+
 	# The integrations service (SCRUM-68). Orders stay CLOSED (503) until PMP_ORDERS=open in .env
 	# and the gateway is recreated: runbooks/production-ovh-vps.md, "Switching orders on". The site
 	# reads the 503 and shows its "ordering opens soon" email fallback.

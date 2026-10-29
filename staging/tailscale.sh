@@ -2,12 +2,13 @@
 # Reach staging over Tailscale with HTTPS, for club demos (SCRUM-38).
 # Run through install.sh:
 #
-#   sudo ./staging/install.sh --tailscale       serve staging at https://<this machine>.<tailnet>.ts.net:8443
-#                                               and the blog editor at ...:8444/keystatic (SCRUM-34)
-#   sudo ./staging/install.sh --tailscale-off   stop serving both there (the LAN address keeps working)
+#   sudo ./staging/install.sh --tailscale       serve staging at https://<this machine>.<tailnet>.ts.net:8443,
+#                                               the blog editor at ...:8444/keystatic (SCRUM-34)
+#                                               and the order admin at ...:8445/admin (SCRUM-71)
+#   sudo ./staging/install.sh --tailscale-off   stop serving all three there (the LAN address keeps working)
 #
-# The editor's port forwards to the gateway's loopback-only listener, so Tailscale is the
-# only way to reach the editor at all.
+# The editor's and the admin's ports forward to the gateway's loopback-only listeners, so
+# Tailscale is the only way to reach either at all.
 # Only devices on your tailnet can open the address. It never uses Funnel (public
 # internet) and never touches the other Tailscale Serve settings on this machine
 # (port 443 belongs to another app): it checks them before and after, and undoes
@@ -81,14 +82,20 @@ ED_LOCAL="$(env_get EDITOR_LOCAL_PORT)"; ED_LOCAL="${ED_LOCAL:-8089}"
 ED_PORT="$(env_get TAILSCALE_EDITOR_HTTPS_PORT)"; ED_PORT="${ED_PORT:-8444}"
 [[ "$ED_PORT" =~ ^[0-9]+$ && "$ED_PORT" != 443 && "$ED_PORT" != "$TS_PORT" ]] ||
   fail "TAILSCALE_EDITOR_HTTPS_PORT must be a port number other than 443 and $TS_PORT"
+AD_LOCAL="$(env_get ADMIN_LOCAL_PORT)"; AD_LOCAL="${AD_LOCAL:-8090}"
+AD_PORT="$(env_get TAILSCALE_ADMIN_HTTPS_PORT)"; AD_PORT="${AD_PORT:-8445}"
+[[ "$AD_PORT" =~ ^[0-9]+$ && "$AD_PORT" != 443 && "$AD_PORT" != "$TS_PORT" && "$AD_PORT" != "$ED_PORT" ]] ||
+  fail "TAILSCALE_ADMIN_HTTPS_PORT must be a port number other than 443, $TS_PORT and $ED_PORT"
 target="http://127.0.0.1:$PORT"
 ts_url="https://$host:$TS_PORT"
 lan_url="http://home-server:$PORT"
 ed_target="http://127.0.0.1:$ED_LOCAL"
 ed_url="https://$host:$ED_PORT"
+ad_target="http://127.0.0.1:$AD_LOCAL"
+ad_url="https://$host:$AD_PORT"
 
 serve_json >"$tmp/before.json"
-others="$(python3 - "$tmp/before.json" "$host" "$TS_PORT" "$ED_PORT" <<'PY'
+others="$(python3 - "$tmp/before.json" "$host" "$TS_PORT" "$ED_PORT" "$AD_PORT" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1])) or {}
 skip = {f"{sys.argv[2]}:{p}" for p in sys.argv[3:]}
@@ -121,6 +128,7 @@ unserve() { # unserve <port> <target> <name>
 
 if [[ "$MODE" == off ]]; then
   info "Turning off staging over Tailscale"
+  unserve "$AD_PORT" "$ad_target" "the order admin"
   unserve "$ED_PORT" "$ed_target" "the blog editor"
   unserve "$TS_PORT" "$target" staging
   origins="$(env_get STAGING_SITE_ORIGINS)"
@@ -157,13 +165,17 @@ serve() { # serve <port> <target> <name>
   ok "Tailscale Serve: https://$host:$1 → $2 ($3; tailnet only, no Funnel)"
 }
 
-# Check both ports, and that the editor answers locally, before changing anything.
+# Check every port, and that the editor and the admin listener answer locally, before changing anything.
 curl -fsS --max-time 5 -o /dev/null "$ed_target/keystatic" ||
   fail "the blog editor isn't answering on $ed_target; re-run: sudo ./staging/install.sh"
+curl -fsS --max-time 5 -o /dev/null "$ad_target/gateway-healthz" ||
+  fail "the gateway's admin listener isn't answering on $ad_target; apply this checkout first: sudo ./staging/install.sh"
 python3 "$HELPER" check "$tmp/before.json" "$host" "$TS_PORT" "$target" >/dev/null || exit 1
 python3 "$HELPER" check "$tmp/before.json" "$host" "$ED_PORT" "$ed_target" >/dev/null || exit 1
+python3 "$HELPER" check "$tmp/before.json" "$host" "$AD_PORT" "$ad_target" >/dev/null || exit 1
 serve "$TS_PORT" "$target" staging
 serve "$ED_PORT" "$ed_target" "the blog editor"
+serve "$AD_PORT" "$ad_target" "the order admin"
 
 origins="$(env_get STAGING_SITE_ORIGINS)"
 origins="$( { tr ',' '\n' <<<"${origins:-$lan_url}"; echo "$ts_url"; } | grep . | awk '!seen[$0]++' | paste -sd, -)"
@@ -199,7 +211,18 @@ fi
 curl -fsS --max-time 10 -o /dev/null "$ed_url/keystatic" || fail "$ed_url/keystatic didn't answer; check: tailscale serve status"
 ok "blog editor answers at $ed_url/keystatic (Tailscale only)"
 
+# The admin, as this machine's own tailnet user (an owner device, so Serve adds your login).
+admin_code="$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$ad_url/admin/orders" || true)"
+case "$admin_code" in
+  200) ok "order admin answers at $ad_url/admin and lets your Tailscale login in" ;;
+  503) warn "order admin answers at $ad_url/admin, but no one may sign in yet: sudo ./staging/install.sh --set-admin-logins" ;;
+  403) warn "order admin answers at $ad_url/admin, but refused this machine's Tailscale login (not in ADMIN_LOGINS, or a tagged device); try it from your phone or Mac" ;;
+  502) warn "the gateway's admin listener is up, but the integrations image predates SCRUM-71; it picks this up after its next update" ;;
+  *) fail "$ad_url/admin/orders answered $admin_code; check: tailscale serve status" ;;
+esac
+
 info "Done. Open $ts_url on any device signed in to your tailnet.
 Blog editor: $ed_url/keystatic
+Order admin: $ad_url/admin
 Phone or iPad setup, the club-demo checklist and how to switch it off:
   runbooks/staging-home-server.md → \"Club demos over Tailscale\""
