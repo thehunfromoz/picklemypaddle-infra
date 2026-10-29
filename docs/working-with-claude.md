@@ -24,7 +24,8 @@ apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Ta
 SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
 website story 40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 and testimonial request 33 built, each
 waiting only on a staging check that needs the admin page; part 3, 29 Oct: admin 71/72 built (integrations #14, infra
-PR), waiting on merge, Attila's Tailscale Serve steps and his phone walk-through; next: 73 and 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+PR #32), waiting on merge, Attila's Tailscale Serve steps and his phone walk-through; queue 73 built
+(integrations #15 on #14, site #52); next: 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -190,6 +191,9 @@ through GitHub commit statuses, or Attila pastes command output.
   pmp-staging-update.service` (the smoke run takes about 6 min).
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
+- **NSW public holidays (SCRUM-73)** live in integrations `src/orders/holidays.ts` (nsw.gov.au,
+  two years ahead). Its coverage test fails once they don't reach 12 months ahead: add the next
+  year then, not by guessing.
 - **Order admin (SCRUM-71/72):** `https://home-server.tail8bc7ae.ts.net:8445/admin` (tailnet only)
   → Tailscale Serve → the gateway's third listener (`:8082`, published on `127.0.0.1:8090` only) →
   `integrations-admin:8081` over the internal `pmp-staging-admin` network. The LAN listener 404s

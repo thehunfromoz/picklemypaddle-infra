@@ -239,6 +239,7 @@ Names only; never the values.
 | One week after production's first HTTPS | Raise HSTS from one day to one year ([runbook](../runbooks/production-ovh-vps.md)) |
 | Monthly | Re-run production `install.sh` to pick up Caddy updates |
 | End of Nov 2026 | ABN, then register `picklemypaddle.com.au` and redirect it |
+| By 30 Dec 2026, then each December | Add the next year's NSW public holidays to integrations `src/orders/holidays.ts` (from nsw.gov.au); its coverage test fails once the list doesn't reach 12 months ahead (SCRUM-73) |
 | 14 Sep 2027 and 1 Oct 2027 | Reminders: add a payment method to OVH (none is stored) or plan to pay by hand |
 | 1 Oct 2027 | GitHub status token "home-server staging status" expires: make a new one, update the file on home-server |
 | Before 14 Oct 2027 | Renew `picklemypaddle.com` and the VPS at OVH (both bought 14 Oct 2026 for one year) |
