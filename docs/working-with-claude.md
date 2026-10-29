@@ -22,7 +22,8 @@ plus return postage. Individuals post paddles in; clubs hand over batches for pi
 Jira: https://thehunfromoz.atlassian.net, project **SCRUM**. Epics: SCRUM-6 platform (done
 apart from OVH stories 19 (production stack, in progress) and 20 (parked) and Tailscale SCRUM-38), SCRUM-7 website (stories 29–37),
 SCRUM-8 orders (stories 64–75, refined 26 Oct 2026; part 1, stories 64–68 and 70 with
-website story 40, built 26 Oct; part 2, from 28 Oct: emails 69, HubSpot 74, testimonial request 33), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
+website story 40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 and testimonial request 33 built, each
+waiting only on a staging check that needs the admin page; next: admin 71/72, then 73 and 75), SCRUM-9 payments, SCRUM-10 clubs, SCRUM-11 launch, SCRUM-12 agents,
 SCRUM-21 security/privacy.
 
 ## How we work
@@ -66,6 +67,14 @@ SCRUM-21 security/privacy.
 - **A green tick isn't proof.** Check that a test actually ran (annotations, the published
   image, the staging status text). Since 13 Oct this has caught: test steps that never
   failed a job, a smoke image that was never published, and a ribbon that never rendered.
+- **Dummy secrets in tests are assembled at runtime** (`['pat', 'ap1', …].join('-')`):
+  GitHub push protection rejects a push containing anything shaped like a real key, even a fake.
+- **A required new setting breaks infra CI too:** its "Real site image runs behind the gateway"
+  job starts the real `:staging` integrations image with its own settings file
+  (`.github/workflows/ci.yml`). Add the setting there in the same change (as for
+  `EMAIL_ALLOWLIST`, 29 Oct).
+- **The stop hook may say a branch is unpushed** when it's pushed but its tracking ref wasn't
+  fetched: `git fetch origin <branch>` clears it.
 
 ## What the build session can't do (GitHub proxy limits)
 
