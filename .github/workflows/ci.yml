@@ -158,6 +158,9 @@ jobs:
           pw="$(openssl rand -hex 24)"
           printf 'POSTGRES_PASSWORD=%s\n' "$pw" >/tmp/postgres.env
           printf 'DATABASE_URL=postgres://pmp:%s@postgres:5432/pmp\n' "$pw" >/tmp/integrations.env
+          # SCRUM-69: integrations won't start outside production without an email allow-list.
+          # No Resend key here, so nothing is ever sent from CI.
+          printf 'EMAIL_ALLOWLIST=ci@example.org\n' >>/tmp/integrations.env
           sed -i 's|^INTEGRATIONS_ENV_FILE=.*|INTEGRATIONS_ENV_FILE=/tmp/integrations.env|' staging/.env
           sed -i 's|^POSTGRES_ENV_FILE=.*|POSTGRES_ENV_FILE=/tmp/postgres.env|' staging/.env
           # Dummy GitHub App values: enough to start the editor and check its sign-in redirect.
