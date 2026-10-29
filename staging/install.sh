@@ -203,6 +203,33 @@ else
   ok "port $PORT is free"
 fi
 
+# The loopback-only listeners for Tailscale Serve: the blog editor (SCRUM-34) and the order admin
+# (SCRUM-71). Checked before anything changes: a port another program or container holds would
+# stop the gateway starting, and staging with it (29 Oct 2026: something already had 8090).
+setting() { # setting <key> <default>
+  local v; v="$(sed -n "s/^$1=//p" "$ENV_FILE" | tail -n1)"; echo "${v:-$2}"
+}
+loopback_port_free() { # loopback_port_free <port> <setting> <gateway container port> <what>
+  local port="$1" key="$2" cport="$3" what="$4" others
+  if [[ -n "$ours" ]] && docker port "$ours" "$cport/tcp" 2>/dev/null | grep -q ":$port\$"; then
+    ok "port $port ($what) is the staging gateway's own"
+    return
+  fi
+  others="$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E "[:]$port->" | grep -v '^pmp-staging-gateway-' || true)"
+  if [[ -n "$others" ]] || ss -ltnH "sport = :$port" | grep -q .; then
+    [[ -z "$others" ]] || printf '    %s\n' "$others" >&2
+    ss -ltnpH "sport = :$port" >&2 || true
+    fail "port $port ($what) is already used by something else (above). Pick a free one: set $key=<port> in $DEST_DIR/.env (find free ones with: sudo ss -ltn), then re-run. Nothing was changed."
+  fi
+  ok "port $port ($what) is free"
+}
+ED_LOCAL="$(setting EDITOR_LOCAL_PORT 8089)"
+AD_LOCAL="$(setting ADMIN_LOCAL_PORT 8090)"
+[[ "$ED_LOCAL" != "$AD_LOCAL" && "$ED_LOCAL" != "$PORT" && "$AD_LOCAL" != "$PORT" ]] ||
+  fail "STAGING_PORT ($PORT), EDITOR_LOCAL_PORT ($ED_LOCAL) and ADMIN_LOCAL_PORT ($AD_LOCAL) must all differ; fix $DEST_DIR/.env"
+loopback_port_free "$ED_LOCAL" EDITOR_LOCAL_PORT 8081 "blog editor, loopback"
+loopback_port_free "$AD_LOCAL" ADMIN_LOCAL_PORT 8082 "order admin, loopback"
+
 for img in "${IMAGES[@]}"; do
   if docker pull -q "$img" >/dev/null 2>&1; then
     ok "can pull ${img#ghcr.io/thehunfromoz/}"

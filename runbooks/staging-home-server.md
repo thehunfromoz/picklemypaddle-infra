@@ -370,6 +370,7 @@ On your phone: open the address with Tailscale on, then Share → **Add to Home 
 | "The admin is not set up yet: ADMIN_LOGINS is empty" (503) | `sudo ./staging/install.sh --set-admin-logins`. |
 | "this Tailscale login may not use the admin" (403) | The device is signed in to Tailscale as someone else, or your login differs from what you entered: Tailscale admin console → Users shows it. Re-run `--set-admin-logins`. |
 | "no Tailscale identity" (403) | You opened it from a tagged device, or not through `…:8445`. |
+| `install.sh` says the order admin's port (8090) is already used | Another program or container on home-server has it. Pick a free port (`sudo ss -ltn` lists the taken ones), set `ADMIN_LOCAL_PORT=<port>` in `/opt/picklemypaddle/staging/.env`, and re-run `sudo ./staging/install.sh`, then `--tailscale` (it reads the same setting). |
 | 502 from `…:8445` | integrations isn't running the admin yet (an image before SCRUM-71) or is restarting: `sudo docker compose -p pmp-staging ps integrations`. |
 
 ## Order database (SCRUM-64)
