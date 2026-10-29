@@ -4,7 +4,7 @@
 #                                                                 └──► integrations (/api/*) ──► postgres
 #
 #   tailnet  ──► https://pmp-prod.<tailnet>.ts.net (Tailscale Serve, :443 on the tailnet only)
-#                ──► 127.0.0.1:8090 ──► gateway :8082 ──► integrations admin :8081  (order admin, SCRUM-71/72)
+#                ──► 127.0.0.1:8100 ──► gateway :8082 ──► integrations admin :8081  (order admin, SCRUM-71/72)
 #   The admin listener is published on loopback ONLY, so only Tailscale Serve on this machine reaches
 #   it; the gateway talks to the admin over its own internal network (pmp-production-admin), and
 #   integrations believes Tailscale's identity headers only from the gateway there. The public sites
@@ -44,7 +44,7 @@ services:
       - "443:443"
       - "443:443/udp" # HTTP/3
       # The order admin's listener (SCRUM-71): loopback ONLY, for Tailscale Serve. Never 0.0.0.0.
-      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8090}:8082"
+      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8100}:8082"
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-picklemypaddle.com}
       ACME_EMAIL: ${ACME_EMAIL:-sales@picklemypaddle.com}

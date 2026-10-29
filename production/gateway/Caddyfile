@@ -25,8 +25,8 @@ http://:8081 {
 }
 
 # The order admin (SCRUM-71/72). Plain HTTP on a container port that compose publishes on the
-# host's loopback ONLY (127.0.0.1:8090), for Tailscale Serve on this machine:
-#   https://pmp-prod.<tailnet>.ts.net ─► Tailscale Serve ─► 127.0.0.1:8090 ─► here ─► pmp-integrations-admin:8081
+# host's loopback ONLY (127.0.0.1:8100), for Tailscale Serve on this machine:
+#   https://pmp-prod.<tailnet>.ts.net ─► Tailscale Serve ─► 127.0.0.1:8100 ─► here ─► pmp-integrations-admin:8081
 # Serve strips any Tailscale-User-* headers a client sends and adds the signed-in user's; they pass
 # through untouched. integrations believes them only from this gateway on the private admin network
 # (the pmp-integrations-admin alias only resolves there) and lets in only ADMIN_LOGINS.

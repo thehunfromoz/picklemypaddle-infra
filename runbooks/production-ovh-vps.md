@@ -150,7 +150,7 @@ The VPS is on the tailnet so the order admin never faces the internet.
 - **Firewall:** ufw is unchanged (22 rate-limited, 80, 443/tcp, 443/udp). Nothing is opened for
   Tailscale: its traffic arrives over the encrypted tunnel, and Serve answers inside `tailscaled`.
 - **The admin:** `https://pmp-prod.tail8bc7ae.ts.net/admin`. Tailscale Serve on the tailnet's port
-  443 forwards to the gateway's admin listener, which compose publishes on `127.0.0.1:8090` only.
+  443 forwards to the gateway's admin listener, which compose publishes on `127.0.0.1:8100` only.
   The gateway reaches integrations' admin port (8081) over the internal `pmp-production-admin`
   network, and integrations believes Tailscale's identity headers only from there and lets in
   only `ADMIN_LOGINS`. The public site answers 404 for `/admin`. **Until orders are switched on,
@@ -161,10 +161,10 @@ The VPS is on the tailnet so the order admin never faces the internet.
 After `git pull && sudo ./production/install.sh` has added the admin listener:
 
 ```bash
-curl -s http://127.0.0.1:8090/gateway-healthz            # ok
+curl -s http://127.0.0.1:8100/gateway-healthz            # ok
 sudo tailscale serve status                               # nothing yet (no other Serve on the VPS)
-sudo tailscale serve --bg --https=443 http://127.0.0.1:8090
-sudo tailscale serve status                               # https://pmp-prod.tail8bc7ae.ts.net (tailnet only) → proxy http://127.0.0.1:8090
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8100
+sudo tailscale serve status                               # https://pmp-prod.tail8bc7ae.ts.net (tailnet only) → proxy http://127.0.0.1:8100
 sudo tailscale funnel status                              # must say no Funnel
 ```
 

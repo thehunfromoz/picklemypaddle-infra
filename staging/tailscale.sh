@@ -78,11 +78,11 @@ ok "this machine is $host on your tailnet"
 PORT="$(env_get STAGING_PORT)"; PORT="${PORT:-8088}"
 TS_PORT="$(env_get TAILSCALE_HTTPS_PORT)"; TS_PORT="${TS_PORT:-8443}"
 [[ "$TS_PORT" =~ ^[0-9]+$ && "$TS_PORT" != 443 ]] || fail "TAILSCALE_HTTPS_PORT must be a port number other than 443 (443 is another app's)"
-ED_LOCAL="$(env_get EDITOR_LOCAL_PORT)"; ED_LOCAL="${ED_LOCAL:-8089}"
+ED_LOCAL="$(env_get EDITOR_LOCAL_PORT)"; ED_LOCAL="${ED_LOCAL:-8101}"
 ED_PORT="$(env_get TAILSCALE_EDITOR_HTTPS_PORT)"; ED_PORT="${ED_PORT:-8444}"
 [[ "$ED_PORT" =~ ^[0-9]+$ && "$ED_PORT" != 443 && "$ED_PORT" != "$TS_PORT" ]] ||
   fail "TAILSCALE_EDITOR_HTTPS_PORT must be a port number other than 443 and $TS_PORT"
-AD_LOCAL="$(env_get ADMIN_LOCAL_PORT)"; AD_LOCAL="${AD_LOCAL:-8090}"
+AD_LOCAL="$(env_get ADMIN_LOCAL_PORT)"; AD_LOCAL="${AD_LOCAL:-8100}"
 AD_PORT="$(env_get TAILSCALE_ADMIN_HTTPS_PORT)"; AD_PORT="${AD_PORT:-8445}"
 [[ "$AD_PORT" =~ ^[0-9]+$ && "$AD_PORT" != 443 && "$AD_PORT" != "$TS_PORT" && "$AD_PORT" != "$ED_PORT" ]] ||
   fail "TAILSCALE_ADMIN_HTTPS_PORT must be a port number other than 443, $TS_PORT and $ED_PORT"
