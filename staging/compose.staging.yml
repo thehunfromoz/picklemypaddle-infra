@@ -32,9 +32,9 @@ services:
     ports:
       - "${STAGING_BIND:-0.0.0.0}:${STAGING_PORT:-8088}:80"
       # The blog editor's listener: loopback only, for Tailscale Serve (SCRUM-34). Never 0.0.0.0.
-      - "127.0.0.1:${EDITOR_LOCAL_PORT:-8089}:8081"
+      - "127.0.0.1:${EDITOR_LOCAL_PORT:-8101}:8081"
       # The order admin's listener (SCRUM-71): loopback only, for Tailscale Serve. Never 0.0.0.0.
-      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8090}:8082"
+      - "127.0.0.1:${ADMIN_LOCAL_PORT:-8100}:8082"
     environment:
       # The Tailscale address the editor is opened at. Must match the editor image's build
       # (EDITOR_HOST/EDITOR_PORT in the site's Dockerfile.editor) and the GitHub App's callback URL.

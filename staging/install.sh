@@ -130,7 +130,7 @@ if $SET_EDITOR_APP; then
       up -d --pull never --no-deps --force-recreate --wait --wait-timeout 60 editor >/dev/null ||
       fail "the editor didn't come back healthy; see: sudo docker compose -p pmp-staging logs editor"
     port="$(sed -n 's/^EDITOR_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
-    login="$(curl -s -o /dev/null -D - "http://127.0.0.1:${port:-8089}/api/keystatic/github/login" || true)"
+    login="$(curl -s -o /dev/null -D - "http://127.0.0.1:${port:-8101}/api/keystatic/github/login" || true)"
     if grep -qi "^location: https://github.com/login/oauth/authorize?client_id=$client_id&" <<<"$login"; then
       ok "editor restarted and sends sign-in to GitHub with this app"
     else
@@ -161,7 +161,7 @@ if $SET_ADMIN_LOGINS; then
     port="$(sed -n 's/^ADMIN_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
     first="${logins%%,*}"
     for _ in $(seq 1 30); do
-      code="$(curl -s -o /dev/null -w '%{http_code}' -H "Tailscale-User-Login: $first" "http://127.0.0.1:${port:-8090}/admin/orders" || true)"
+      code="$(curl -s -o /dev/null -w '%{http_code}' -H "Tailscale-User-Login: $first" "http://127.0.0.1:${port:-8100}/admin/orders" || true)"
       [[ "$code" == 200 ]] && break
       sleep 2
     done
@@ -202,6 +202,33 @@ if ss -ltnH "sport = :$PORT" | grep -q .; then
 else
   ok "port $PORT is free"
 fi
+
+# The loopback-only listeners for Tailscale Serve: the blog editor (SCRUM-34) and the order admin
+# (SCRUM-71). Checked before anything changes: a port another program or container holds would
+# stop the gateway starting, and staging with it (29 Oct 2026: wanderer already had 8090).
+setting() { # setting <key> <default>
+  local v; v="$(sed -n "s/^$1=//p" "$ENV_FILE" | tail -n1)"; echo "${v:-$2}"
+}
+loopback_port_free() { # loopback_port_free <port> <setting> <gateway container port> <what>
+  local port="$1" key="$2" cport="$3" what="$4" others
+  if [[ -n "$ours" ]] && docker port "$ours" "$cport/tcp" 2>/dev/null | grep -q ":$port\$"; then
+    ok "port $port ($what) is the staging gateway's own"
+    return
+  fi
+  others="$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E "[:]$port->" | grep -v '^pmp-staging-gateway-' || true)"
+  if [[ -n "$others" ]] || ss -ltnH "sport = :$port" | grep -q .; then
+    [[ -z "$others" ]] || printf '    %s\n' "$others" >&2
+    ss -ltnpH "sport = :$port" >&2 || true
+    fail "port $port ($what) is already used by something else (above). Pick a free one: set $key=<port> in $DEST_DIR/.env (find free ones with: sudo ss -ltn), then re-run. Nothing was changed."
+  fi
+  ok "port $port ($what) is free"
+}
+ED_LOCAL="$(setting EDITOR_LOCAL_PORT 8101)"
+AD_LOCAL="$(setting ADMIN_LOCAL_PORT 8100)"
+[[ "$ED_LOCAL" != "$AD_LOCAL" && "$ED_LOCAL" != "$PORT" && "$AD_LOCAL" != "$PORT" ]] ||
+  fail "STAGING_PORT ($PORT), EDITOR_LOCAL_PORT ($ED_LOCAL) and ADMIN_LOCAL_PORT ($AD_LOCAL) must all differ; fix $DEST_DIR/.env"
+loopback_port_free "$ED_LOCAL" EDITOR_LOCAL_PORT 8081 "blog editor, loopback"
+loopback_port_free "$AD_LOCAL" ADMIN_LOCAL_PORT 8082 "order admin, loopback"
 
 for img in "${IMAGES[@]}"; do
   if docker pull -q "$img" >/dev/null 2>&1; then
@@ -400,7 +427,7 @@ if grep -q '"database"' <<<"$api_status"; then
 fi
 
 EDITOR_PORT="$(sed -n 's/^EDITOR_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
-EDITOR_PORT="${EDITOR_PORT:-8089}"
+EDITOR_PORT="${EDITOR_PORT:-8101}"
 if curl -fsS -o /dev/null "http://127.0.0.1:$EDITOR_PORT/keystatic"; then
   ok "blog editor answers on 127.0.0.1:$EDITOR_PORT (Tailscale only: sudo $0 --tailscale)"
 else
@@ -419,7 +446,7 @@ else
   fail "http://127.0.0.1:$PORT/admin/orders should be 404 (the admin is Tailscale-only); re-run: sudo $0"
 fi
 ADMIN_PORT="$(sed -n 's/^ADMIN_LOCAL_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
-ADMIN_PORT="${ADMIN_PORT:-8090}"
+ADMIN_PORT="${ADMIN_PORT:-8100}"
 case "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$ADMIN_PORT/admin/orders")" in
   403) ok "order admin answers on 127.0.0.1:$ADMIN_PORT and refuses requests without a Tailscale login (Tailscale only: sudo $0 --tailscale)" ;;
   503) ok "order admin answers on 127.0.0.1:$ADMIN_PORT; no one may sign in yet: sudo $0 --set-admin-logins" ;;

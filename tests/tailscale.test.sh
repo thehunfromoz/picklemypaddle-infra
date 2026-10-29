@@ -82,7 +82,7 @@ path = "/" + url.split("/", 3)[3] if url.count("/") >= 3 else "/"
 if path.startswith("/admin") and "-w" in args:
     # The order admin through Serve (SCRUM-71): FAKE_ADMIN_CODE stands in for integrations' answer.
     print(os.environ.get("FAKE_ADMIN_CODE", "200"), end="")
-elif path == "/gateway-healthz" and url.startswith("http://127.0.0.1:8090") and os.environ.get("FAKE_ADMIN_DOWN"):
+elif path == "/gateway-healthz" and url.startswith("http://127.0.0.1:8100") and os.environ.get("FAKE_ADMIN_DOWN"):
     sys.exit(7)
 elif "-D" in args:
     if path == "/api/status":
@@ -130,10 +130,10 @@ other_app_untouched || die "1. the :443 app changed"
 grep -q '"8443": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8443 not served over HTTPS"
 grep -q "\"$HOST:8443\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8088\"}}}" "$WORK/serve.json" || die "1. :8443 doesn't point at staging"
 grep -q '"8444": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8444 (editor) not served over HTTPS"
-grep -q "\"$HOST:8444\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8089\"}}}" "$WORK/serve.json" || die "1. :8444 doesn't point at the editor's loopback listener"
+grep -q "\"$HOST:8444\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8101\"}}}" "$WORK/serve.json" || die "1. :8444 doesn't point at the editor's loopback listener"
 grep -q "blog editor answers at $ED_URL/keystatic" "$WORK/out" || die "1. editor not confirmed over Tailscale"
 grep -q '"8445": {"HTTPS": true}' "$WORK/serve.json" || die "1. :8445 (admin) not served over HTTPS"
-grep -q "\"$HOST:8445\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8090\"}}}" "$WORK/serve.json" || die "1. :8445 doesn't point at the admin's loopback listener"
+grep -q "\"$HOST:8445\": {\"Handlers\": {\"/\": {\"Proxy\": \"http://127.0.0.1:8100\"}}}" "$WORK/serve.json" || die "1. :8445 doesn't point at the admin's loopback listener"
 grep -q "order admin answers at $AD_URL/admin and lets your Tailscale login in" "$WORK/out" || die "1. admin not confirmed over Tailscale"
 [[ "$(env_val STAGING_PUBLIC_URL)" == "$TS_URL" ]] || die "1. STAGING_PUBLIC_URL not switched"
 [[ "$(env_val STAGING_SITE_ORIGINS)" == "http://home-server:8088,$TS_URL" ]] || die "1. origins: $(env_val STAGING_SITE_ORIGINS)"

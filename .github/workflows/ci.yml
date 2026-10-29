@@ -101,7 +101,7 @@ jobs:
           public="$(jq -r '[.services[] | (.ports // [])[] | select((.host_ip // "") != "127.0.0.1") | "\(.published)/\(.protocol // "tcp")"] | sort | join(" ")' <<<"$cfg")"
           [ "$public" = "443/tcp 443/udp 80/tcp" ] || { echo "::error::production publishes more than 80, 443/tcp and 443/udp publicly: $public"; exit 1; }
           loopback="$(jq -r '[.services[] | (.ports // [])[] | select(.host_ip == "127.0.0.1") | "\(.published)->\(.target)"] | join(" ")' <<<"$cfg")"
-          [ "$loopback" = "8090->8082" ] || { echo "::error::the only loopback port must be the admin listener (127.0.0.1:8090 → gateway :8082): $loopback"; exit 1; }
+          [ "$loopback" = "8100->8082" ] || { echo "::error::the only loopback port must be the admin listener (127.0.0.1:8100 → gateway :8082): $loopback"; exit 1; }
           jq -e '.networks.admin.internal == true' <<<"$cfg" >/dev/null || { echo "::error::the production admin network must be internal"; exit 1; }
           on_admin="$(jq -r '[.services | to_entries[] | select(.value.networks | has("admin")) | .key] | sort | join(" ")' <<<"$cfg")"
           [ "$on_admin" = "gateway integrations" ] || { echo "::error::only the gateway and integrations may join the production admin network (found: $on_admin)"; exit 1; }
@@ -233,21 +233,21 @@ jobs:
           done
           # The loopback listener (Tailscale Serve's target) serves the editor ...
           # (Keystatic's page has no <html> tag; its app bundle is called keystatic-page.)
-          page="$(curl -fsS http://127.0.0.1:8089/keystatic || true)"
+          page="$(curl -fsS http://127.0.0.1:8101/keystatic || true)"
           if ! grep -q 'keystatic-page' <<<"$page"; then
-            echo "::error::the editor isn't served on 127.0.0.1:8089/keystatic"; exit 1
+            echo "::error::the editor isn't served on 127.0.0.1:8101/keystatic"; exit 1
           fi
-          headers="$(curl -fsSI http://127.0.0.1:8089/keystatic)"
+          headers="$(curl -fsSI http://127.0.0.1:8101/keystatic)"
           grep -qi '^x-robots-tag: noindex' <<<"$headers" || { echo "::error::editor pages aren't noindex"; exit 1; }
           if grep -qi '^server:' <<<"$headers"; then echo "::error::editor listener leaks a Server header"; exit 1; fi
           # ... and GitHub sign-in returns to the Tailscale HTTPS address the GitHub App expects.
-          login="$(curl -s -o /dev/null -D - http://127.0.0.1:8089/api/keystatic/github/login)"
+          login="$(curl -s -o /dev/null -D - http://127.0.0.1:8101/api/keystatic/github/login)"
           want='redirect_uri=https%3A%2F%2Fhome-server.tail8bc7ae.ts.net%3A8444%2Fapi%2Fkeystatic%2Fgithub%2Foauth%2Fcallback'
           grep -qi "^location: https://github.com/login/oauth/authorize?client_id=Iv1.citestclient&$want" <<<"$login" || {
             echo "::error::sign-in doesn't return to the Tailscale address: $(grep -i '^location' <<<"$login" | tr -d '\r')"; exit 1; }
           # Nothing on the LAN interface: the port isn't bound to 0.0.0.0.
-          if ss -ltnH 'sport = :8089' | grep -qv '127.0.0.1:8089'; then
-            echo "::error::port 8089 is listening beyond loopback: $(ss -ltnH 'sport = :8089')"; exit 1
+          if ss -ltnH 'sport = :8101' | grep -qv '127.0.0.1:8101'; then
+            echo "::error::port 8101 is listening beyond loopback: $(ss -ltnH 'sport = :8101')"; exit 1
           fi
       - name: Order admin is behind the gateway on loopback only, never on the LAN listener (SCRUM-71)
         run: |
@@ -257,20 +257,20 @@ jobs:
             [ "$code" = 404 ] || { echo "::error::LAN listener answers $path with $code (expected 404)"; exit 1; }
           done
           # Nothing on the LAN interface: the admin port isn't bound to 0.0.0.0.
-          if ss -ltnH 'sport = :8090' | grep -qv '127.0.0.1:8090'; then
-            echo "::error::port 8090 is listening beyond loopback: $(ss -ltnH 'sport = :8090')"; exit 1
+          if ss -ltnH 'sport = :8100' | grep -qv '127.0.0.1:8100'; then
+            echo "::error::port 8100 is listening beyond loopback: $(ss -ltnH 'sport = :8100')"; exit 1
           fi
           # The loopback listener (Tailscale Serve's target): refused without a login, the list with one.
-          no_login="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/admin/orders)"
+          no_login="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8100/admin/orders)"
           if [ "$no_login" = 502 ]; then
             echo "::warning title=order admin::the :staging integrations image predates SCRUM-71 (no admin listener yet); merge picklemypaddle-integrations #14 first, then re-run"
             exit 0
           fi
           [ "$no_login" = 403 ] || { echo "::error::admin without a Tailscale login answered $no_login (expected 403)"; exit 1; }
-          page="$(curl -fsS -H 'Tailscale-User-Login: ci-admin@example.org' -H 'Tailscale-User-Name: CI' http://127.0.0.1:8090/admin/orders)" ||
+          page="$(curl -fsS -H 'Tailscale-User-Login: ci-admin@example.org' -H 'Tailscale-User-Name: CI' http://127.0.0.1:8100/admin/orders)" ||
             { echo "::error::the admin refused the allowed login through the gateway's loopback listener"; exit 1; }
           grep -q 'Signed in through Tailscale as CI' <<<"$page" || { echo "::error::the admin list page didn't render"; exit 1; }
-          headers="$(curl -fsSI -H 'Tailscale-User-Login: ci-admin@example.org' http://127.0.0.1:8090/admin/orders)"
+          headers="$(curl -fsSI -H 'Tailscale-User-Login: ci-admin@example.org' http://127.0.0.1:8100/admin/orders)"
           for want in '^cache-control: no-store' '^x-frame-options: DENY' "^content-security-policy:.*frame-ancestors 'none'"; do
             grep -qi "$want" <<<"$headers" || { echo "::error::admin header missing ($want): ${headers//$'\n'/ }"; exit 1; }
           done

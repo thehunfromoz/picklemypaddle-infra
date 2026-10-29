@@ -160,7 +160,7 @@ through GitHub commit statuses, or Attila pastes command output.
   `-cpu Penryn` to catch it; QEMU's `qemu64` model is too old even for Node, so use Penryn.
 - **Blog editor (SCRUM-34):** Keystatic, staging only, Tailscale only:
   `https://home-server.tail8bc7ae.ts.net:8444/keystatic` → Tailscale Serve → the gateway's
-  second listener (`:8081`, published on `127.0.0.1:8089` only) → `editor:4321`. The LAN
+  second listener (`:8081`, published on `127.0.0.1:8101` only) → `editor:4321`. The LAN
   listener 404s `/keystatic*` and `/api/keystatic*`. Its image (`picklemypaddle-site-editor`)
   is built from the site's `Dockerfile.editor` + `astro.editor.config.mjs`; the public build
   (`astro.config.mjs`) and the production stack never include it, and CI checks both. Posts
@@ -195,11 +195,11 @@ through GitHub commit statuses, or Attila pastes command output.
   two years ahead). Its coverage test fails once they don't reach 12 months ahead: add the next
   year then, not by guessing.
 - **Order admin (SCRUM-71/72):** `https://home-server.tail8bc7ae.ts.net:8445/admin` (tailnet only)
-  → Tailscale Serve → the gateway's third listener (`:8082`, published on `127.0.0.1:8090` only) →
+  → Tailscale Serve → the gateway's third listener (`:8082`, published on `127.0.0.1:8100` only) →
   `integrations-admin:8081` over the internal `pmp-staging-admin` network. The LAN listener 404s
   `/admin*`. integrations believes `Tailscale-User-Login` only from the gateway on that network and
   lets in only `ADMIN_LOGINS` (root-only secrets file; `install.sh --set-admin-logins`). Production:
-  `https://pmp-prod.tail8bc7ae.ts.net/admin` (Serve on the tailnet's 443 → `127.0.0.1:8090`),
+  `https://pmp-prod.tail8bc7ae.ts.net/admin` (Serve on the tailnet's 443 → `127.0.0.1:8100`),
   503 until orders are on. In tests and CI, fake the identity headers on the loopback listener
   (`tests/helpers/admin.ts`, `tests/e2e/server.ts`).
 - **Tailscale (SCRUM-38):** staging is also at `https://home-server.tail8bc7ae.ts.net:8443`

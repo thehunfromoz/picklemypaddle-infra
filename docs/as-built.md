@@ -72,6 +72,26 @@ Done by hand (SCRUM-19 status of 15 Oct); the rebuild run-sheet (later slice) wi
 - Docker commands use `sudo`; `ubuntu` is **not** in the `docker` group (checked 20 Oct, as PR #15
   recommends), because that group is root-equivalent.
 
+## Ports on home-server (decided 29 Oct 2026)
+
+Host ports below 8100 are for Attila's own apps; ours start at 8100, in blocks of ten per app, so
+the two never collide (the order admin first took 8090, which wanderer already had). Tailscale
+Serve's HTTPS ports (8443–8445) are in Serve's own namespace, not the host's, so they stay as they
+are; 8444 is also the blog editor's GitHub App callback. `staging/install.sh` refuses a loopback
+port something else holds before changing anything.
+
+| Port | What |
+| --- | --- |
+| 8088 | PickleMyPaddle staging, LAN (kept: bookmarks, CORS origins, smoke tests) |
+| 8090 | wanderer (Attila's) |
+| 8100 | PickleMyPaddle staging: order admin, loopback only (`ADMIN_LOCAL_PORT`) |
+| 8101 | PickleMyPaddle staging: blog editor, loopback only (`EDITOR_LOCAL_PORT`) |
+| 8102–8109 | spare, PickleMyPaddle |
+| 8110–8119 | the consulting site, when it arrives |
+| Serve 443, 8443, 8444, 8445 | tailnet only: another app (`localhost:3000`), staging, blog editor, order admin |
+
+The VPS uses the same loopback port for its admin listener (127.0.0.1:8100) for consistency.
+
 ## Tailscale (SCRUM-38, SCRUM-71)
 
 - **Tailnet:** `tail8bc7ae.ts.net`, MagicDNS and HTTPS certificates on. The login is Attila's;
@@ -171,7 +191,7 @@ backup at 02:30 Sydney time (`pmp-staging-backup.timer`) to `/var/backups/pickle
 
 **Order admin (SCRUM-71/72):** integrations serves it on its own port (8081), which the public
 gateways never route (`/admin` is 404 on the LAN and public addresses). Each gateway has a third
-listener (`:8082`) published on `127.0.0.1:8090` only, which Tailscale Serve exposes on the tailnet;
+listener (`:8082`) published on `127.0.0.1:8100` only, which Tailscale Serve exposes on the tailnet;
 the gateway reaches the admin over an internal network (`pmp-staging-admin`, `pmp-production-admin`)
 that only it and integrations join. Who may sign in is `ADMIN_LOGINS` in each host's root-only
 integrations secrets file (staging: `install.sh --set-admin-logins`).

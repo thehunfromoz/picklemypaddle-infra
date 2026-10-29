@@ -79,7 +79,7 @@
 
 # The blog editor (Keystatic, SCRUM-34). Reachable only from this machine (127.0.0.1, see
 # compose.staging.yml), which means only through Tailscale Serve:
-#   https://home-server.<tailnet>.ts.net:8444 → 127.0.0.1:8089 → here → editor:4321
+#   https://home-server.<tailnet>.ts.net:8444 → 127.0.0.1:8101 → here → editor:4321
 :8081 {
 	header X-Robots-Tag "noindex, nofollow"
 
@@ -112,7 +112,7 @@
 
 # The order admin (SCRUM-71/72). Reachable only from this machine (127.0.0.1, see compose.staging.yml),
 # which means only through Tailscale Serve:
-#   https://home-server.<tailnet>.ts.net:8445 → 127.0.0.1:8090 → here → integrations-admin:8081
+#   https://home-server.<tailnet>.ts.net:8445 → 127.0.0.1:8100 → here → integrations-admin:8081
 # Tailscale Serve strips any Tailscale-User-* headers a client sends and adds the signed-in user's;
 # they pass through untouched. integrations believes them only when the connection comes from this
 # gateway over the private admin network (that's why the target is the integrations-admin alias, which
