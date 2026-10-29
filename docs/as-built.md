@@ -93,10 +93,14 @@ Done by hand (SCRUM-19 status of 15 Oct); the rebuild run-sheet (later slice) wi
   order from the website; `info@` is for ordinary dialogue with customers once an order is taken;
   `attila@` is the personal address, for clubs. Not iCloud (personal-use terms, tied to a personal Apple
   Account).
-- **Sending:** Resend, for the automatic order emails, which come **From `sales@picklemypaddle.com`**.
-  The domain is verified on the sending subdomain `send.picklemypaddle.com`, region Tokyo, click and
-  open tracking off. (What the `rsend` CNAME is for was not recorded.) Replies go to `info@`
-  (Reply-To). How Attila replies to customers *from* `info@` and `attila@` is not decided yet.
+- **Sending:** Resend, for the automatic order emails, which come **From `sales@picklemypaddle.com`**
+  with Reply-To `info@`. The domain is verified on the sending subdomain `send.picklemypaddle.com`,
+  region Tokyo, click and open tracking off. The `rsend` CNAME is Resend's return-path (bounce)
+  domain: mail leaves Amazon SES (Tokyo) with an envelope sender at `rsend.picklemypaddle.com`,
+  which is what SPF checks, and DKIM signs as `picklemypaddle.com` (selector `resend`). Staging
+  test order of 29 Oct 2026: SPF, DKIM and DMARC all pass (SCRUM-69). Replying to customers *as*
+  `sales@`, `info@` or `attila@` (Gmail "Send mail as" through Resend SMTP) is SCRUM-78, before
+  launch.
 - **API keys (SCRUM-69):** one per environment, "Sending access" on `picklemypaddle.com` only, kept
   only in that host's root-only integrations secrets file. Staging's is named `staging home-server`.
   Production's is made when orders are switched on. A key is shown once at creation; to replace one,
