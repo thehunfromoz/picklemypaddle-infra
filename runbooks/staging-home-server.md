@@ -111,6 +111,12 @@ those permissions. Nothing else on home-server, and nothing in any repo, holds t
   without an allow-list.** Everything else is recorded as suppressed and never sent; subjects
   start `[TEST]`. Smoke-test orders send nothing. Status links in emails point at
   `STAGING_PUBLIC_URL` (the tailnet address once `--tailscale` has run).
+- **Prices and GST (SCRUM-81):** `GST_REGISTERED_FROM` (empty = not registered) and
+  `BUSINESS_ABN` (optional on staging). Neither is a secret, but they live here with the other
+  integrations settings. **To try the GST switch on staging:** add `GST_REGISTERED_FROM=<today,
+  YYYY-MM-DD>`, re-run `install.sh`, accept a test order (its admin price says "includes GST"; one
+  accepted earlier still says "no GST"), then empty the value and re-run `install.sh`. Staging
+  accepts a GST date without an ABN; production doesn't.
 - Edit it with `sudo nano /etc/picklemypaddle/integrations.env`, then apply with
   `cd ~/picklemypaddle-infra && sudo ./staging/install.sh`.
 - `APP_ENV`, `PORT` and `PUBLIC_SITE_ORIGIN` are fixed in `compose.staging.yml`, so this file

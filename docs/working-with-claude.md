@@ -32,8 +32,13 @@ the record. Epics:
   retention 75 (staging walk-through of retention and erasure passed 30 Oct). Left in the epic: launch
   gates 63 (discount codes, needs payments) and bug 76 (iPhone photos). Next epic: SCRUM-9 payments
   (Stripe test account first).
+- **SCRUM-9 payments** (refined 30 Oct 2026; Sprint 3): 81 pricing/postage/GST → 63 discount
+  codes → 82 Stripe → 83 reminder and unpaid lapse → 84 receipts and invoices → 85 clubs and
+  batch invoices → 86 ledger → 87 policies and runbooks. Launch gates: 81, 82, 83, 84, 87 and 63.
+  Stripe can't reach home-server, so staging sees payments through the Checkout return and an
+  events poller; the webhook is production only.
 - **SCRUM-11 launch:** its "is blocked by" links are the launch checklist.
-- SCRUM-9 payments, SCRUM-10 clubs, SCRUM-12 agents, SCRUM-21 security/privacy.
+- SCRUM-10 clubs, SCRUM-12 agents, SCRUM-21 security/privacy.
 
 ## How we work
 
@@ -268,6 +273,11 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 - Payment after photo assessment; private status links, no customer accounts.
 - Clubs keep their members' details; they pay by PayID, Stripe invoice or cash on delivery.
 - Return postage is charged separately; not GST-registered (ABN before launch).
+- **Prices, postage and GST (SCRUM-81, decided 30 Oct 2026):** A$60 a paddle, and from
+  `GST_REGISTERED_FROM` it *includes* GST. Each order and document saves its terms when it is
+  issued (the issue date decides), so nothing issued earlier changes. Return postage is worked out
+  from size and weight (integrations `src/pricing/`, Australia Post Parcel Post from Sydney, a new
+  dated table each July), and Attila can override it at Accept with a reason.
 - Turnaround: back in the post within 10 business days of arrival. Order reply within
   1 business day.
 - Re-gritted paddles are not legal for sanctioned tournaments; say so near pricing.
