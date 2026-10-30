@@ -28,10 +28,10 @@ the record. Epics:
   79 (About photo, measured paddle weight), plus 35 (analytics, needed for launch). 32 (gallery) and
   33 (testimonials, built) are BLOCKED on real re-grits and real customers; 41 is parked.
 - **SCRUM-8 orders** (stories 64–75, refined 26 Oct 2026): 64–74 and the review reminder 80 are
-  Done (admin over Tailscale, HubSpot mirror and queue signed off by Attila 29–30 Oct). Retention
-  75 built 30 Oct (integrations #18, site #54, infra deletion runbook), waiting on merge, Attila's
-  privacy-policy approval and his runbook walk-through. Also launch gates 63 (discount codes) and
-  bug 76 (iPhone photos). Next epic: SCRUM-9 payments (Stripe test account first).
+  Done (admin over Tailscale, HubSpot mirror and queue signed off by Attila 29–30 Oct), and so is
+  retention 75 (staging walk-through of retention and erasure passed 30 Oct). Left in the epic: launch
+  gates 63 (discount codes, needs payments) and bug 76 (iPhone photos). Next epic: SCRUM-9 payments
+  (Stripe test account first).
 - **SCRUM-11 launch:** its "is blocked by" links are the launch checklist.
 - SCRUM-9 payments, SCRUM-10 clubs, SCRUM-12 agents, SCRUM-21 security/privacy.
 
