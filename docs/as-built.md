@@ -19,6 +19,7 @@ Rules for this file:
 | Production server | OVH VPS-1, Sydney (Ubuntu 26.04) | Running, hardened; stack in PR #15 (SCRUM-19) |
 | Production site | `https://www.picklemypaddle.com` | No release deployed yet |
 | DNS, email routing | Cloudflare (Free plan) | Live |
+| Retention and erasure | The integrations service, daily (SCRUM-75); Gmail and Resend by [runbook](../runbooks/deletion.md) | Built 30 Oct 2026 |
 | Order emails | Resend (Tokyo region) | Domain verified; staging key and allow-list on home-server (SCRUM-69); no production key yet |
 | Staging | `home-server` on the home LAN | Live ([runbook](../runbooks/staging-home-server.md)) |
 | Blog editor (Keystatic) | Staging only, on the tailnet at `:8444/keystatic` | Added by SCRUM-34 ([runbook](../runbooks/staging-home-server.md#blog-editor-over-tailscale-scrum-34)) |
@@ -149,6 +150,9 @@ The VPS uses the same loopback port for its admin listener (127.0.0.1:8100) for 
   only in that host's root-only integrations secrets file. Staging's is named `staging home-server`.
   Production's is made when orders are switched on. A key is shown once at creation; to replace one,
   create a new key, update the file, re-run `install.sh`, then delete the old key in Resend.
+- **Retention at Resend:** sent emails (content, metadata, delivery events) are kept **30 days** on
+  every plan, then deleted by Resend (checked 30 Oct 2026, Resend's "account quotas and limits"
+  page). Gmail is swept monthly by hand ([deletion runbook](../runbooks/deletion.md)).
 - **What the service sends:** the customer's emails at key moments (Submitted, Accepted, In queue,
   Posted back, Rejected), the "email me my links" reply, and a reference-only new-order alert to
   `sales@`. Outside production only the allow-listed addresses ever receive mail. Detail: the
