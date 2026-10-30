@@ -27,11 +27,11 @@ the record. Epics:
 - **SCRUM-7 website:** launch gates 31 (privacy and terms: ABN, postage, lost/damaged; BLOCKED) and
   79 (About photo, measured paddle weight), plus 35 (analytics, needed for launch). 32 (gallery) and
   33 (testimonials, built) are BLOCKED on real re-grits and real customers; 41 is parked.
-- **SCRUM-8 orders** (stories 64–75, refined 26 Oct 2026): part 1, 64–68 and 70 with website story
-  40, built 26 Oct; part 2, 28–29 Oct: emails 69 done; HubSpot 74 built, waiting on its admin
-  staging check; part 3, 29 Oct: admin 71/72 built (integrations #14, infra PR #32), waiting on
-  merge, Attila's Tailscale Serve steps and his phone walk-through; queue 73 built (integrations
-  #15 on #14, site #52); next: 75. Also launch gates 63 (discount codes) and bug 76 (iPhone photos).
+- **SCRUM-8 orders** (stories 64–75, refined 26 Oct 2026): 64–74 and the review reminder 80 are
+  Done (admin over Tailscale, HubSpot mirror and queue signed off by Attila 29–30 Oct). Retention
+  75 built 30 Oct (integrations #18, site #54, infra deletion runbook), waiting on merge, Attila's
+  privacy-policy approval and his runbook walk-through. Also launch gates 63 (discount codes) and
+  bug 76 (iPhone photos). Next epic: SCRUM-9 payments (Stripe test account first).
 - **SCRUM-11 launch:** its "is blocked by" links are the launch checklist.
 - SCRUM-9 payments, SCRUM-10 clubs, SCRUM-12 agents, SCRUM-21 security/privacy.
 
@@ -316,9 +316,12 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 - **Abuse:** honeypot, 3-second minimum fill time, 5 orders per IP per hour and 3 per email per
   day (configurable per environment; production never relaxed for tests). No third-party
   CAPTCHA (CSP).
-- **Retention:** a daily automatic job, with a 14-day heads-up and per-order extensions in
-  admin. Photos: 12 months after Completed. Rejected, Withdrawn and Lapsed orders: deleted
-  12 months later. Paid orders: 5 years. Erasure on request keeps only the tax minimum for paid
-  orders and permanently deletes the HubSpot contact. Gmail and Resend are covered by the
-  deletion runbook. SCRUM-75 must be Done before production takes real orders.
+- **Retention (SCRUM-75, built 30 Oct):** a daily job in integrations (`src/orders/retention.ts`),
+  with a 14-day heads-up and per-order extensions in admin (Retention page). Photos: 12 months
+  after Completed. Rejected, Withdrawn and Lapsed orders never paid: deleted 12 months later.
+  Paid orders: 5 years after their end status (ATO: from the later of record made or transaction
+  completed). Smoke orders 24 h; Attila's TEST orders follow the real rules. Erasure on request
+  (admin) keeps only the tax minimum for paid orders and GDPR-deletes the HubSpot contact.
+  Gmail, Resend (30-day log) and backups: `runbooks/deletion.md`. Test-only `backdate-order.js`
+  shows a rule on staging.
 - **Clubs** (batch tracking) are in SCRUM-10, not SCRUM-8.
