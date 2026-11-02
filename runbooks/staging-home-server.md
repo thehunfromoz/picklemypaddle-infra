@@ -497,6 +497,28 @@ sudo rm /var/lib/pmp-staging/site.known-bad
 sudo systemctl start pmp-staging-update.service
 ```
 
+### If an update was interrupted (SCRUM-88)
+
+The updater has 45 minutes per run (`TimeoutStartSec`). If a run is stopped part-way (that limit,
+a reboot, Ctrl-C on a hand-run), it puts the previous image back and posts an **error** status
+("Update interrupted before its checks finished …") on the commit. The image isn't marked bad, so
+the next run (within 2 minutes) tries it again. `journalctl -u pmp-staging-update.service -n 30
+--no-pager` shows each step's time (`smoke-test image ready (Ns)`, `healthy (Ns)`, `smoke tests
+passed (Ns)`), so a slow step is easy to spot.
+
+`install.sh`'s "First update" waits for a run already in progress. If it fails because that run
+was stopped, wait until `systemctl is-active pmp-staging-update.service` says `inactive`, then
+re-run `install.sh`.
+
+**Run the smoke tests by hand** against what's live (about 6 minutes; `<sha>` is the site
+commit, from `docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+$(sudo docker compose -p pmp-staging ps -q site)`):
+
+```bash
+sudo docker run --rm --network host --shm-size=1g -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 \
+  ghcr.io/thehunfromoz/picklemypaddle-site-smoke:<sha> 2>&1 | tail -8
+```
+
 ### Apply changes from this repo (and refresh the gateway)
 
 Changes to the compose file, gateway or updater are never picked up automatically. Re-running

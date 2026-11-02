@@ -13,7 +13,11 @@ Environment=STATE_DIR=/var/lib/pmp-staging
 Environment=DOCKER_CONFIG=/var/lib/pmp-staging/docker
 StateDirectory=pmp-staging
 ExecStart=/opt/picklemypaddle/staging/update.sh
-TimeoutStartSec=15min
+# SCRUM-88: room for a slow smoke-image pull, the 2-minute health check and the 10-minute smoke
+# budget (15 min once killed a deploy mid-test). If it is ever reached, update.sh puts the old
+# image back on SIGTERM; TimeoutStopSec gives it time to do so before SIGKILL.
+TimeoutStartSec=45min
+TimeoutStopSec=2min
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true

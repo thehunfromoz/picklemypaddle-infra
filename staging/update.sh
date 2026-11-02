@@ -16,6 +16,12 @@
 # Before any of that it starts the services the others depend on (postgres, SCRUM-64) and skips
 # the round if they aren't healthy, so a new image is never rolled back for a database problem.
 #
+# SCRUM-88: the smoke-test image is pulled BEFORE the component is switched to the new image (it
+# is large; on home-server's connection the pull once took ~8 minutes with the new site already
+# live and untested), and each step's duration is logged. If the run is stopped part-way (systemd's
+# time limit, a reboot, Ctrl-C), the component is put back on the image it was running, the
+# commit gets an "error" status saying so, and the next run tries the new image again.
+#
 # It only pulls and runs published images: nothing here fetches or executes code
 # from the (public) GitHub repos. Exit code: 0 = all fine, 1 = something failed
 # (shown as a failed run in `systemctl status` and the journal).
@@ -145,24 +151,39 @@ ensure_gateway() {
 # Run the smoke-test image built from the same commit (<repo>-smoke:<sha>).
 # EXPECT_STAGING=1: the suite also checks the staging-only Preview ribbon and noindex (SCRUM-38).
 # Returns 0 = passed, 1 = failed, 2 = could not run (no image, no label, ...).
+# Pull the smoke-test image for a build, before the component is switched over (SCRUM-88).
+# Prints nothing; a missing image is reported by run_smoke.
+pull_smoke() { # pull_smoke <service> <image-id> <repo>
+  local svc="$1" id="$2" repo="$3" rev start=$SECONDS
+  [[ " $SMOKE_SERVICES " == *" $svc "* ]] || return 0
+  rev="$(rev_of "$id")"
+  [[ -n "$rev" ]] || return 0
+  if docker pull -q "$repo-smoke:$rev" >/dev/null 2>&1; then
+    log "$svc: smoke-test image ready ($((SECONDS - start))s)"
+  fi
+}
+
 run_smoke() { # run_smoke <service> <image-id> <repo>
-  local svc="$1" id="$2" repo="$3" rev smoke prev name="pmp-smoke-$1" rc=0
+  local svc="$1" id="$2" repo="$3" rev smoke prev name="pmp-smoke-$1" rc=0 start
   [[ " $SMOKE_SERVICES " == *" $svc "* ]] || return 0
   rev="$(rev_of "$id")"
   [[ -n "$rev" ]] || { log "$svc: image has no revision label; can't pick smoke tests"; return 2; }
   smoke="$repo-smoke:$rev"
-  if ! docker pull -q "$smoke" >/dev/null 2>&1; then
+  # Normally already pulled by pull_smoke; this only checks it's there.
+  if ! docker image inspect "$smoke" >/dev/null 2>&1 && ! docker pull -q "$smoke" >/dev/null 2>&1; then
     log "$svc: smoke-test image $smoke not found"
     return 2
   fi
   ensure_gateway || { log "$svc: gateway not healthy, can't run smoke tests"; return 1; }
   log "$svc: running smoke tests ($smoke) against $SMOKE_BASE_URL"
   docker rm -f "$name" >/dev/null 2>&1 || true
+  start=$SECONDS
   timeout "$SMOKE_TIMEOUT" docker run --name "$name" --rm --network host --shm-size=1g \
     --cap-drop ALL --security-opt no-new-privileges -e BASE_URL="$SMOKE_BASE_URL" \
     -e EXPECT_STAGING=1 \
     "$smoke" >"$STATE_DIR/$svc.smoke.log" 2>&1 || rc=1
   docker rm -f "$name" >/dev/null 2>&1 || true
+  log "$svc: smoke tests $([[ $rc -eq 0 ]] && echo passed || echo failed) ($((SECONDS - start))s)"
   tail -n 5 "$STATE_DIR/$svc.smoke.log" | sed "s/^/$svc smoke | /"
   # SCRUM-68: the real test order the smoke suite placed, so the journal shows it ran.
   grep -o 'smoke order PMP-[A-Z0-9]* placed' "$STATE_DIR/$svc.smoke.log" | sed "s/^/$svc smoke | /" || true
@@ -202,18 +223,24 @@ update_service() {
     return 0
   fi
 
-  log "$svc: deploying $(short "$new_id") (was $(short "${running_id:-none}"))"
   SERVICE_CONTEXT="$(status_context_of "$svc")"
+  # SCRUM-88: the (large) smoke-test image first, while the running version keeps serving.
+  pull_smoke "$svc" "$new_id" "$repo"
+  log "$svc: deploying $(short "$new_id") (was $(short "${running_id:-none}"))"
   report "$new_id" pending "Deploying to home-server staging"
+  # From here until the outcome is reported, an interrupted run puts the old image back.
+  INFLIGHT_SVC="$svc" INFLIGHT_NEW="$new_id" INFLIGHT_RUNNING="$running_id" INFLIGHT_IMAGE="$image" INFLIGHT_CONTEXT="$SERVICE_CONTEXT"
   compose up -d --no-deps --pull never "$svc" >/dev/null 2>&1 || true
 
-  local reason="" smoke_rc=0
+  local reason="" smoke_rc=0 started=$SECONDS
   if ! wait_healthy "$svc"; then
     reason="Health check failed"
   else
+    log "$svc: healthy ($((SECONDS - started))s)"
     run_smoke "$svc" "$new_id" "$repo" || smoke_rc=$?
     [[ $smoke_rc -eq 1 ]] && reason="Smoke tests failed"
   fi
+  INFLIGHT_SVC=""
 
   if [[ -z "$reason" ]]; then
     if [[ -n "$running_id" ]]; then
@@ -258,6 +285,31 @@ update_service() {
   return 1
 }
 
+# SCRUM-88: a deploy that is stopped part-way (systemd's time limit, a reboot, Ctrl-C) mustn't leave
+# an untested image live with a "pending" status that never resolves. Put the old image back, say
+# so on the commit, and let the next run try again (not recorded as known-bad: it wasn't judged).
+INFLIGHT_SVC=""
+# shellcheck disable=SC2329 # invoked by the trap in main
+interrupted() {
+  trap - TERM INT
+  if [[ -n "$INFLIGHT_SVC" ]]; then
+    local back
+    log "$INFLIGHT_SVC: update interrupted before its checks finished; putting $(short "${INFLIGHT_RUNNING:-none}") back"
+    docker rm -f "pmp-smoke-$INFLIGHT_SVC" >/dev/null 2>&1 || true
+    if [[ -n "$INFLIGHT_RUNNING" ]]; then
+      docker tag "$INFLIGHT_RUNNING" "$INFLIGHT_IMAGE"
+      compose up -d --no-deps --pull never "$INFLIGHT_SVC" >/dev/null 2>&1 || true
+      back="$(rev_of "$INFLIGHT_RUNNING")"
+      back="${back:0:7}"
+      back="${back:-$(short "$INFLIGHT_RUNNING")}"
+      SERVICE_CONTEXT="$INFLIGHT_CONTEXT" report "$INFLIGHT_NEW" error "Update interrupted before its checks finished; staging put back on $back; the next run tries again"
+    else
+      SERVICE_CONTEXT="$INFLIGHT_CONTEXT" report "$INFLIGHT_NEW" error "Update interrupted before its checks finished; the next run tries again"
+    fi
+  fi
+  exit 1
+}
+
 main() {
   mkdir -p "$STATE_DIR"
   exec 9>"$STATE_DIR/update.lock"
@@ -265,6 +317,7 @@ main() {
     log "another update is already running; skipping this run"
     exit 0
   fi
+  trap interrupted TERM INT
 
   local status=0 svc deps
   deps="$(dependency_services)"
