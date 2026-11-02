@@ -113,8 +113,14 @@ These need Attila, so give him exact click-paths or commands:
   and `npm i node@26` into a scratch folder gives a usable Node 26), so lockfiles can be
   created and refreshed in the session with `pnpm install --lockfile-only`; the old
   temporary-workflow trick is no longer needed. But there is **no Docker daemon**, and the
-  Playwright browser download and Docker Hub are not reachable, so `test:e2e`,
-  `check:lighthouse` and the image build and Trivy scan run only in CI. Lint, `check`,
+  Playwright browser download and Docker Hub are not reachable, so `check:lighthouse` and the
+  image build and Trivy scan run only in CI. **`test:e2e` does run in the session** (found 2 Nov
+  2026): the container has a pre-installed Chromium in `/opt/pw-browsers` under an older revision
+  number, so link it under the name our Playwright expects (the error names it, e.g. 1248) and
+  point Playwright there: `mkdir -p /tmp/pwb && for d in chromium chromium_headless_shell; do ln
+  -sfn /opt/pw-browsers/$d-1243 /tmp/pwb/$d-1248; done`, then `PLAYWRIGHT_BROWSERS_PATH=/tmp/pwb
+  pnpm exec playwright test`. Worth doing before pushing: the site's e2e can't run in CI while
+  its rules parity test fails (an integrations change not yet merged). Lint, `check`,
   `test:unit`, build, `check:secrets` and `check:links` do run in the session (site CI uses
   Node 26; a session on Node 22 is close enough for these);
 - create PRs with `gh pr create` (no GraphQL): use
