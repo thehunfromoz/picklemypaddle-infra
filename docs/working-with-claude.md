@@ -340,8 +340,10 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 
 ### Discount codes (SCRUM-63, decided 30 Oct and 2 Nov 2026)
 
-- Managed in admin (**Discount codes**): shared codes (e.g. `LAUNCH10`, capped uses) or one-person
-  codes `FREE-` + 8 easy-read characters. Free re-grit for up to N paddles, A$x off or x% off the
+- Managed in admin (**Discount codes**). **The launch offer uses 10 unique one-person codes**
+  (`FREE-` + 8 easy-read characters, generated in a batch, a note on each saying who it went to);
+  customers still pay return postage through Stripe. Shared codes (e.g. `SPRING10`, capped uses)
+  are for later marketing campaigns. Free re-grit for up to N paddles, A$x off or x% off the
   re-grit; **never postage**, direct orders only, not tied to a testimonial (launch-offer
   testimonials get a footnote, SCRUM-87).
 - Checked by integrations (`POST /api/discount-codes/check`, rate-limited per IP, one refusal
