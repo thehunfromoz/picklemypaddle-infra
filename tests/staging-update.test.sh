@@ -15,6 +15,8 @@
 #      listener; the LAN listener answers 404 for its paths
 #   9. the order database (SCRUM-64) is started first and kept running: never replaced by an
 #      update, not published, and only integrations can reach it
+#  10. the smoke-test image is pulled before the switch, and a run stopped mid-smoke (systemd's
+#      time limit) puts the old image back and reports "error", not a forever-"pending" (SCRUM-88)
 # Every deploy's outcome is checked as a commit status on a fake GitHub API.
 set -euo pipefail
 
@@ -236,5 +238,33 @@ if docker run --rm --network pmp-staging "$img" pg_isready -h postgres -t 3 >/de
   die "postgres is reachable from the gateway's network"
 fi
 pass "9. postgres started first, kept across updates, unpublished, reachable only on its own network"
+
+# 10 ── a run stopped part-way (SCRUM-88)
+# The smoke-test image was pulled before the switch to D, while the previous version still served.
+ready="$(grep -n 'site: smoke-test image ready' "$WORK/update.log" | tail -n1 | cut -d: -f1)"
+deploying="$(grep -n "site: deploying" "$WORK/update.log" | tail -n1 | cut -d: -f1)"
+[[ -n "$ready" && -n "$deploying" && "$ready" -lt "$deploying" ]] || die "smoke-test image not pulled before the switch (ready line ${ready:-none}, deploying line ${deploying:-none})"
+grep -q 'site: healthy ([0-9]*s)' "$WORK/update.log" || die "health-check duration not logged"
+grep -q 'site: smoke tests passed ([0-9]*s)' "$WORK/update.log" || die "smoke-test duration not logged"
+publish SLOW 200
+"$STACK_DIR/update.sh" >"$WORK/slow.log" 2>&1 &
+slow_pid=$!
+for _ in $(seq 1 90); do grep -q 'running smoke tests' "$WORK/slow.log" && break; sleep 1; done
+grep -q 'running smoke tests' "$WORK/slow.log" || die "the SLOW smoke run never started: $(cat "$WORK/slow.log")"
+[[ "$(served)" == "version SLOW" ]] || die "SLOW should be live while its smoke tests run, got: $(served)"
+slow_id="$(docker inspect -f '{{.Image}}' "$(docker compose --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" ps -q site)")"
+# Like systemd at its time limit: SIGTERM to the updater and everything it started.
+pkill -TERM -P "$slow_pid" || true
+pkill -TERM -x timeout || true
+kill -TERM "$slow_pid" 2>/dev/null || true
+if wait "$slow_pid"; then die "an interrupted run should exit non-zero"; fi
+cat "$WORK/slow.log" >>"$WORK/update.log"
+grep -q 'site: update interrupted before its checks finished' "$WORK/slow.log" || die "no interruption message: $(cat "$WORK/slow.log")"
+[[ "$(served)" == "version D" ]] || die "after interruption expected version D back, got: $(served)"
+[[ "$(status_of SLOW)" == "error | Update interrupted before its checks finished; staging put back on rev-D; the next run tries again" ]] ||
+  die "wrong status: $(status_of SLOW)"
+! grep -qx "$slow_id" "$STATE_DIR/site.known-bad" 2>/dev/null || die "an interrupted image must not be recorded as known-bad"
+[[ -z "$(docker ps -aq -f name=pmp-smoke-site)" ]] || die "the interrupted smoke container was left behind"
+pass "10. smoke image pulled before the switch; an interrupted run puts D back, reports error, isn't known-bad"
 
 echo "All updater scenarios passed."
