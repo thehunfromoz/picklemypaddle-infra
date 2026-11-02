@@ -277,7 +277,9 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   `GST_REGISTERED_FROM` it *includes* GST. Each order and document saves its terms when it is
   issued (the issue date decides), so nothing issued earlier changes. Return postage is worked out
   from size and weight (integrations `src/pricing/`, Australia Post Parcel Post from Sydney, a new
-  dated table each July), and Attila can override it at Accept with a reason.
+  dated table each July), and Attila can override it at Accept with a reason. **For launch (decided
+  2 Nov 2026): actual weight, not cubic; packaging absorbed for a single paddle and charged at cost
+  from two paddles** (1 paddle A$11.70, 2 A$18.00, 3–9 A$23.75, 10 A$27.95). Revisit after launch.
 - Turnaround: back in the post within 10 business days of arrival. Order reply within
   1 business day.
 - Re-gritted paddles are not legal for sanctioned tournaments; say so near pricing.
