@@ -37,6 +37,10 @@ them off in your reply draft.
    erased, so just try again later.
 5. The Retention page's **Erasures** list now shows the erasure (counts and categories only).
    That is your evidence it was done.
+6. **Discount codes (SCRUM-63):** erasing clears the note on any one-person code (one use) the
+   customer's orders used. A shared code's note is left alone, so never put a customer's name or
+   email in a shared code's note. If one slipped in, open **Discount codes** and deactivate the
+   code; tell Claude to clear the note (there is no edit button).
 
 ### 2. Gmail (the business mailbox)
 

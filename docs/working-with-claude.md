@@ -337,3 +337,15 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   Gmail, Resend (30-day log) and backups: `runbooks/deletion.md`. Test-only `backdate-order.js`
   shows a rule on staging.
 - **Clubs** (batch tracking) are in SCRUM-10, not SCRUM-8.
+
+### Discount codes (SCRUM-63, decided 30 Oct and 2 Nov 2026)
+
+- Managed in admin (**Discount codes**): shared codes (e.g. `LAUNCH10`, capped uses) or one-person
+  codes `FREE-` + 8 easy-read characters. Free re-grit for up to N paddles, A$x off or x% off the
+  re-grit; **never postage**, direct orders only, not tied to a testimonial (launch-offer
+  testimonials get a footnote, SCRUM-87).
+- Checked by integrations (`POST /api/discount-codes/check`, rate-limited per IP, one refusal
+  message, logged by reason only). Reserved at submit, consumed at Paid, released on Rejected,
+  Withdrawn or Lapsed; what the code gives is saved on the order at submit and fixed at Accept.
+- 63's DoD covers the confirmation, admin, Accepted email, status page and HubSpot; paying a coded
+  order with a Stripe test card is in SCRUM-82's DoD, the code on the receipt in SCRUM-84's.
