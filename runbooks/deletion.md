@@ -61,11 +61,13 @@ by itself, on every plan (checked 30 Oct 2026: [Resend's quotas and limits](http
 Nothing to do unless the customer wants it gone sooner: then in the Resend dashboard, **Emails**,
 search their address, and contact Resend support to ask for deletion of those messages.
 
-### 4. Stripe (once payments are built, SCRUM-9)
+### 4. Stripe (SCRUM-82)
 
-[To be completed with SCRUM-9.] Stripe keeps payment records it is legally required to keep.
-Customer objects we create can be deleted in the Stripe dashboard (Customers → the customer →
-Delete), which doesn't remove the payment records themselves.
+We create no Stripe customers: each Checkout payment carries the customer's email and the card
+details they typed on Stripe's page, which Stripe keeps as a payment record (it must, for its own
+legal duties). Our database keeps only the payment intent id, amount, fee and dates. Nothing to
+delete on our side; if the customer wants Stripe's copy gone, point them to Stripe's privacy
+centre, or ask Stripe support from the dashboard (Payments → the payment → its customer details).
 
 ### 5. Backups
 

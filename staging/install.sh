@@ -12,6 +12,8 @@
 #                                          client ID and secret (SCRUM-34)
 #   sudo ./staging/install.sh --set-admin-logins  set the Tailscale login(s) allowed into the order
 #                                          admin (SCRUM-71/72)
+#   sudo ./staging/install.sh --set-stripe-key  store (or replace) the Stripe TEST-mode restricted
+#                                          key (typed hidden, checked with Stripe) (SCRUM-82)
 #
 # Safe to re-run: it keeps your existing /opt/picklemypaddle/staging/.env.
 # You run this by hand after reviewing a change; nothing runs it automatically.
@@ -33,15 +35,17 @@ CHECK_ONLY=false
 SET_TOKEN=false
 SET_EDITOR_APP=false
 SET_ADMIN_LOGINS=false
+SET_STRIPE_KEY=false
 case "${1:-}" in
   --check) CHECK_ONLY=true ;;
   --set-token) SET_TOKEN=true ;;
   --set-editor-app) SET_EDITOR_APP=true ;;
   --set-admin-logins) SET_ADMIN_LOGINS=true ;;
+  --set-stripe-key) SET_STRIPE_KEY=true ;;
   --tailscale) exec "$SRC_DIR/tailscale.sh" on ;;
   --tailscale-off) exec "$SRC_DIR/tailscale.sh" off ;;
   "") ;;
-  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--set-admin-logins|--tailscale|--tailscale-off]" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--set-admin-logins|--set-stripe-key|--tailscale|--tailscale-off]" >&2; exit 2 ;;
 esac
 
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -169,6 +173,75 @@ if $SET_ADMIN_LOGINS; then
       ok "integrations restarted; the admin lets $first in (open it over Tailscale: sudo $0 --tailscale)"
     else
       fail "integrations restarted, but the admin answered $code for $first; check: sudo docker compose -p pmp-staging logs integrations"
+    fi
+  fi
+  exit 0
+fi
+
+# SCRUM-82: the Stripe key. Typed hidden, never on a command line (so never in ps or shell
+# history), checked against Stripe's API, then saved root-only and integrations restarted.
+stripe_get() { # stripe_get <key-file> <path>: HTTP status of a GET, the key read from a file
+  printf 'user = "%s:"\n' "$(tr -d '[:space:]' <"$1")" |
+    curl -sS --config - --max-time 15 -o /dev/null -w '%{http_code}' "https://api.stripe.com$2" || echo 000
+}
+if $SET_STRIPE_KEY; then
+  [[ -f "$SECRETS_FILE" ]] || fail "staging isn't installed yet; run: sudo $0"
+  info "Stripe TEST-mode restricted key (Stripe dashboard, Test mode → Developers → API keys → Create restricted key)"
+  printf '  Permissions: Checkout Sessions Write; PaymentIntents, Charges, Balance, Events Read; everything else None.\n'
+  read -rsp "  Paste the key (input hidden): " key
+  echo
+  key="$(tr -d '[:space:]' <<<"$key")"
+  [[ "$key" == rk_live_* || "$key" == sk_live_* ]] && { unset key; fail "that's a LIVE key: staging only ever takes a test-mode key (rk_test_…)"; }
+  [[ "$key" == sk_test_* ]] && { unset key; fail "that's the full secret key: create a restricted key (rk_test_…) with only the permissions above"; }
+  [[ "$key" =~ ^rk_test_[A-Za-z0-9]+$ ]] || { unset key; fail "that doesn't look like a Stripe restricted test key (rk_test_…)"; }
+  install -d -m 0700 "$(dirname "$SECRETS_FILE")"
+  keyfile="$(mktemp "$(dirname "$SECRETS_FILE")/.stripe.XXXXXX")"
+  chmod 600 "$keyfile"
+  printf '%s\n' "$key" >"$keyfile"
+  unset key
+  trap 'rm -f "$keyfile"' EXIT
+  # Each permission the service needs, and one it must not have.
+  for check in "/v1/checkout/sessions?limit=1:Checkout Sessions" "/v1/payment_intents?limit=1:PaymentIntents" \
+    "/v1/charges?limit=1:Charges" "/v1/balance_transactions?limit=1:Balance" "/v1/events?limit=1:Events"; do
+    code="$(stripe_get "$keyfile" "${check%%:*}")"
+    case "$code" in
+      200) ok "${check#*:}: allowed" ;;
+      401) fail "Stripe doesn't recognise the key (401): copy it again" ;;
+      403) fail "the key can't read ${check#*:} (403): give it ${check#*:} access (see above) and try again" ;;
+      *) fail "couldn't check the key with Stripe (HTTP $code); is home-server online?" ;;
+    esac
+  done
+  if [[ "$(stripe_get "$keyfile" "/v1/customers?limit=1")" == 200 ]]; then
+    printf '  \033[33m!\033[0m the key can also read Customers: it has more access than needed. Fine for test mode, but use the list above for production.\n'
+  fi
+  # Saved through stdin, so the value is never an argument either.
+  python3 - "$SECRETS_FILE" "$keyfile" <<'PY3'
+import os, sys
+path, keyfile = sys.argv[1:]
+value = open(keyfile, encoding="utf-8").read().strip()
+lines = [l for l in open(path, encoding="utf-8").read().splitlines() if not l.startswith("STRIPE_SECRET_KEY=")]
+lines.append(f"STRIPE_SECRET_KEY={value}")
+tmp = path + ".tmp"
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    f.write("\n".join(lines) + "\n")
+os.replace(tmp, path)
+PY3
+  chown root:root "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
+  ok "saved to $SECRETS_FILE (root-only)"
+  if [[ -f "$DEST_DIR/compose.staging.yml" ]]; then
+    docker compose --project-directory "$DEST_DIR" -f "$DEST_DIR/compose.staging.yml" \
+      up -d --pull never --no-deps --force-recreate integrations >/dev/null ||
+      fail "integrations didn't restart; see: sudo docker compose -p pmp-staging logs integrations"
+    port="$(sed -n 's/^STAGING_PORT=//p' "$DEST_DIR/.env" | tail -n1)"
+    for _ in $(seq 1 30); do
+      grep -q '"stripe":"configured"' <<<"$(curl -fsS "http://127.0.0.1:${port:-8088}/api/status" 2>/dev/null || true)" && break
+      sleep 2
+    done
+    if grep -q '"stripe":"configured"' <<<"$(curl -fsS "http://127.0.0.1:${port:-8088}/api/status" 2>/dev/null || true)"; then
+      ok "integrations restarted with Stripe (test mode): Pay now shows on Accepted orders' status pages"
+    else
+      fail "integrations restarted, but doesn't report Stripe as configured; see: sudo docker compose -p pmp-staging logs integrations"
     fi
   fi
   exit 0

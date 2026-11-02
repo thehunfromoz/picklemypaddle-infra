@@ -204,6 +204,15 @@ Only once the sign-offs above are recorded in Jira. You'll need an integrations 
    echo "ADMIN_LOGINS=<your Tailscale login>" | sudo tee -a /etc/picklemypaddle/integrations.env >/dev/null   # SCRUM-71
    sudo chmod 600 /etc/picklemypaddle/integrations.env
    ```
+   **Stripe (SCRUM-82), live mode:** a restricted key with the same permissions as staging's (Balance,
+   Charges, Events, PaymentIntents Read; Checkout Sessions Write; everything else None), named
+   `production pmp-prod`. Then the webhook: Developers → Webhooks → **Add endpoint**
+   `https://www.picklemypaddle.com/api/stripe/webhook`, events **`checkout.session.completed`,
+   `checkout.session.async_payment_succeeded`, `charge.refunded`**; reveal its signing secret. Put
+   both in the file without echoing them (`sudo nano /etc/picklemypaddle/integrations.env`):
+   `STRIPE_SECRET_KEY=rk_live_…` and `STRIPE_WEBHOOK_SECRET=whsec_…`. Production refuses to start
+   with a test key, or with a key but no webhook secret. The events poller runs here too, as a
+   backstop for a missed webhook.
 3. **The settings** in `/opt/picklemypaddle/production/.env`: `COMPOSE_PROFILES=orders`,
    `INTEGRATIONS_VERSION=vX.Y.Z`, and `PMP_ORDERS=open`.
 4. **Start the database and the service**, and check they answer from inside:

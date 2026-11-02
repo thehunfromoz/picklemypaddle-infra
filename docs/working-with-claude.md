@@ -271,7 +271,21 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
 ## Decisions worth knowing
 
 - Payment after photo assessment; private status links, no customer accounts.
-- Clubs keep their members' details; they pay by PayID, Stripe invoice or cash on delivery.
+- Clubs keep their members' details; they pay by PayID, card (our invoice + Checkout) or cash on delivery.
+
+### Payments (SCRUM-82, decided 30 Oct and 2 Nov 2026)
+
+- Pay now on the private status page (Accepted only) → `POST /api/orders/pay` → a fresh Stripe
+  Checkout Session for the total saved at Accept. Emails never carry Stripe links. A coded order
+  has a net re-grit line (e.g. A$0 for a launch code) plus return postage; no Stripe coupons.
+- Paid comes from the Checkout return (`/order/paid` → `POST /api/orders/paid`), the events poller
+  (every 2 min) or, in production only, the webhook; one idempotent handler, payment row and Paid
+  in one transaction. Wrong amounts and payments for orders no longer Accepted are flagged in
+  admin, never applied. Refunds: in the Stripe dashboard; `charge.refunded` is recorded.
+- Keys are **restricted**: Checkout Sessions Write; PaymentIntents, Charges, Balance, Events Read.
+  Staging's is set with `install.sh --set-stripe-key` (never pasted into a chat). In tests Stripe is
+  faked at the HTTP boundary (integrations `tests/helpers/fake-stripe.ts`); the admin e2e pays
+  through it.
 - Return postage is charged separately; not GST-registered (ABN before launch).
 - **Prices, postage and GST (SCRUM-81, decided 30 Oct 2026):** A$60 a paddle, and from
   `GST_REGISTERED_FROM` it *includes* GST. Each order and document saves its terms when it is
@@ -304,8 +318,8 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   overwritten. Test portal only until near go-live; the production portal must be in the
   Australian region (the privacy policy says so).
 - **Statuses:** Submitted → Questions → Accepted → Paid → In queue → Re-gritted → Posted back →
-  Completed, plus Rejected, Withdrawn, Lapsed. Paid is set by Stripe (SCRUM-9); staging has a
-  test-only "Mark paid (test)". Completed is automatic 10 days after Posted back; Lapsed after
+  Completed, plus Rejected, Withdrawn, Lapsed. Paid is set by Stripe only (SCRUM-82 removed
+  staging's "Mark paid (test)"; staging pays with Stripe test cards). Completed is automatic 10 days after Posted back; Lapsed after
   30 days stalled in Questions (unpaid lapse: SCRUM-9).
 - **Emails** (Resend) at key moments only: Submitted, Accepted, In queue, Posted back, Rejected.
   From sales@, Reply-To info@; questions to customers go by hand from info@. Attila's alert has
