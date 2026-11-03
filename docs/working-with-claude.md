@@ -288,6 +288,10 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   (every 2 min) or, in production only, the webhook; one idempotent handler, payment row and Paid
   in one transaction. Wrong amounts and payments for orders no longer Accepted are flagged in
   admin, never applied. Refunds: in the Stripe dashboard; `charge.refunded` is recorded.
+- **Unpaid (SCRUM-83):** one reminder on day 14 after Accept, Accepted → Lapsed on day 30 (Sydney
+  dates; open sessions expired, code use released). A payment that arrives for a Lapsed or
+  Withdrawn order is flagged (badge, `alert_payment` email), never applied; Attila **reinstates** it
+  (admin, with a note; decided 2 Nov: Lapsed and Withdrawn) or refunds in Stripe.
 - Keys are **restricted**: Checkout Sessions Write; PaymentIntents, Charges, Balance, Events Read.
   Staging's is set with `install.sh --set-stripe-key` (never pasted into a chat). In tests Stripe is
   faked at the HTTP boundary (integrations `tests/helpers/fake-stripe.ts`); the admin e2e pays

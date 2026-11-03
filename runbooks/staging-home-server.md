@@ -459,6 +459,20 @@ sudo cat "$p" | sudo docker run --rm -i -v pmp-staging-photos:/dst postgres:18-a
 sudo docker compose -p pmp-staging start integrations && sudo systemctl start pmp-staging-update.timer
 ```
 
+### Try the unpaid-order jobs (SCRUM-83)
+
+The service sends the payment reminder on day 14 after acceptance and lapses unpaid orders on
+day 30, once a day. To see them now with a TEST order you accepted and haven't paid:
+
+```bash
+cd /opt/picklemypaddle/staging
+c="sudo docker compose -p pmp-staging exec -T integrations node dist/cli"
+$c/backdate-order.js PMP-XXXXX 15d   # accepted 15 days ago
+$c/unpaid-run.js                     # "Payment reminders queued: 1"; the email goes within a minute
+$c/backdate-order.js PMP-XXXXX 16d   # now 31 days ago
+$c/unpaid-run.js                     # "Lapsed: 1"; no email; Pay now gone from the status page
+```
+
 ### Reset staging's database (throw all test orders away)
 
 ```bash
