@@ -117,6 +117,10 @@ those permissions. Nothing else on home-server, and nothing in any repo, holds t
   YYYY-MM-DD>`, re-run `install.sh`, accept a test order (its admin price says "includes GST"; one
   accepted earlier still says "no GST"), then empty the value and re-run `install.sh`. Staging
   accepts a GST date without an ABN; production doesn't.
+- **Receipts (SCRUM-84):** `BUSINESS_NAME` (empty = `PickleMyPaddle`) is the seller's name on
+  receipts and credit notes; until `BUSINESS_ABN` is set they show `ABN [To confirm: ABN]`. A
+  document keeps the name, ABN and GST wording it was issued with: changing these settings only
+  affects documents issued afterwards.
 - **Stripe (SCRUM-82):** set the key with `sudo ./staging/install.sh --set-stripe-key`, never by
   pasting it anywhere else. Make it first in the Stripe dashboard, **Test mode** on: Developers →
   API keys → **Create restricted key**, name `staging home-server`, and set exactly these
@@ -471,6 +475,24 @@ $c/backdate-order.js PMP-XXXXX 15d   # accepted 15 days ago
 $c/unpaid-run.js                     # "Payment reminders queued: 1"; the email goes within a minute
 $c/backdate-order.js PMP-XXXXX 16d   # now 31 days ago
 $c/unpaid-run.js                     # "Lapsed: 1"; no email; Pay now gone from the status page
+```
+
+### Receipts, refunds and the Refunded status (SCRUM-84)
+
+Paying an order issues its receipt (`PMP-INV-0001` upward) and the "Payment received" email.
+Each refund made in the Stripe dashboard issues a credit note (`PMP-CN-0001` upward) and the
+"Refund issued" email within about 2 minutes (the events poller); a refund of the whole payment
+also moves the order to **Refunded**. Admin → **Documents** lists every document; each one prints
+(or saves as a PDF) from the browser without the admin's header. The customer opens theirs from the
+emails or the status page (`/order/document?n=…#<token>`).
+
+After the release that adds the Refunded status, add its HubSpot stage once, or every HubSpot sync
+waits (`stage_missing`) until you do:
+
+```bash
+cd /opt/picklemypaddle/staging
+sudo docker compose -p pmp-staging exec -T integrations node dist/cli/hubspot-setup.js --dry-run  # shows the plan
+sudo docker compose -p pmp-staging exec -T integrations node dist/cli/hubspot-setup.js            # creates "Refunded"
 ```
 
 ### Reset staging's database (throw all test orders away)
