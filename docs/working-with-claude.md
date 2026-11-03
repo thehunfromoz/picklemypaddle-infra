@@ -288,6 +288,18 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   (every 2 min) or, in production only, the webhook; one idempotent handler, payment row and Paid
   in one transaction. Wrong amounts and payments for orders no longer Accepted are flagged in
   admin, never applied. Refunds: in the Stripe dashboard; `charge.refunded` is recorded.
+- **Receipts (SCRUM-84, decided 30 Oct and 3 Nov 2026):** our own numbered documents, one
+  sequence `PMP-INV-0001` for receipts and club invoices, `PMP-CN-0001` for credit notes; numbers
+  never skipped or reused. Each is a frozen snapshot (canonical JSON + SHA-256, a database trigger
+  refuses edits); a mistake or refund is a credit note ("Adjustment note" if it adjusts a tax
+  invoice; the accountant confirms the format). Wording by issue date: "Invoice" / "No GST has been
+  charged" before `GST_REGISTERED_FROM`, "Tax invoice" with ABN and GST after. Seller name is the
+  `BUSINESS_NAME` setting, PickleMyPaddle (registered with ASIC alongside the ABN). Buyer's name
+  only, never address or email. The receipt is issued at Paid with the "Payment received" email
+  (where to post); every refund issues a credit note and the "Refund issued" email (5 to 10
+  business days); a full refund moves the order to Refunded (HubSpot stage "Refunded"). The
+  printable page is `/order/document?n=…#<status token>` (browser print, no PDF engine), and the
+  admin has Documents. Kept for the paid-order 5 years; erasure leaves documents as issued.
 - **Unpaid (SCRUM-83):** one reminder on day 14 after Accept, Accepted → Lapsed on day 30 (Sydney
   dates; open sessions expired, code use released). A payment that arrives for a Lapsed or
   Withdrawn order is flagged (badge, `alert_payment` email), never applied; Attila **reinstates** it
@@ -328,10 +340,12 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   overwritten. Test portal only until near go-live; the production portal must be in the
   Australian region (the privacy policy says so).
 - **Statuses:** Submitted → Questions → Accepted → Paid → In queue → Re-gritted → Posted back →
-  Completed, plus Rejected, Withdrawn, Lapsed. Paid is set by Stripe only (SCRUM-82 removed
+  Completed, plus Rejected, Withdrawn, Lapsed and Refunded (SCRUM-84: set by Stripe when a paid
+  order is refunded in full; a partial refund keeps the status). Paid is set by Stripe only (SCRUM-82 removed
   staging's "Mark paid (test)"; staging pays with Stripe test cards). Completed is automatic 10 days after Posted back; Lapsed after
   30 days stalled in Questions (unpaid lapse: SCRUM-9).
-- **Emails** (Resend) at key moments only: Submitted, Accepted, In queue, Posted back, Rejected.
+- **Emails** (Resend) at key moments only: Submitted, Accepted, Payment received (with the
+  receipt), In queue, Posted back, Rejected, and Refund issued (each refund, with its credit note).
   From sales@, Reply-To info@; questions to customers go by hand from info@. Attila's alert has
   the reference and admin link only. Outside production: `[TEST]` subjects and an allow-list of
   Attila's addresses (everything else suppressed). Built (SCRUM-69) as an outbox: queued with the

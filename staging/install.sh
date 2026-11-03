@@ -384,6 +384,8 @@ HUBSPOT_PORTAL_ID=
 # SCRUM-81: the first day GST applies (YYYY-MM-DD; empty = not registered), and the ABN.
 GST_REGISTERED_FROM=
 BUSINESS_ABN=
+# SCRUM-84: the seller's name on receipts and credit notes (empty = PickleMyPaddle).
+BUSINESS_NAME=
 SECRETS
   )
   ok "created $SECRETS_FILE (root-only, empty)"
