@@ -99,8 +99,8 @@ Staging keeps the integrations service's keys in **`/etc/picklemypaddle/integrat
 `install.sh` creates it empty, owned by root with mode 600, and `--check` fails if anyone loosens
 those permissions. Nothing else on home-server, and nothing in any repo, holds these keys.
 
-- **Only test-mode values on staging.** Use a Stripe *test* secret key (`sk_test_…`) and webhook
-  secret, and a service key from the HubSpot *test* portal ("PickleMyPaddle test"). HubSpot's new
+- **Only test-mode values on staging.** A Stripe *test-mode restricted* key (see "Stripe" below),
+  and a service key from the HubSpot *test* portal ("PickleMyPaddle test"). HubSpot's new
   accounts have no legacy private apps; create the key under Settings → Integrations → Service Keys
   with contacts, companies and deals read/write plus their schema scopes. The service refuses to
   start with a live Stripe key on staging. The error names the setting but never shows the key.
@@ -117,6 +117,26 @@ those permissions. Nothing else on home-server, and nothing in any repo, holds t
   YYYY-MM-DD>`, re-run `install.sh`, accept a test order (its admin price says "includes GST"; one
   accepted earlier still says "no GST"), then empty the value and re-run `install.sh`. Staging
   accepts a GST date without an ABN; production doesn't.
+- **Stripe (SCRUM-82):** set the key with `sudo ./staging/install.sh --set-stripe-key`, never by
+  pasting it anywhere else. Make it first in the Stripe dashboard, **Test mode** on: Developers →
+  API keys → **Create restricted key**, name `staging home-server`, and set exactly these
+  permissions (everything else **None**):
+
+  | Section | Resource | Permission |
+  | --- | --- | --- |
+  | Core | Balance | Read |
+  | Core | Charges | Read |
+  | Core | Events | Read |
+  | Core | PaymentIntents | Read |
+  | Checkout | Checkout Sessions | Write |
+
+  `--set-stripe-key` asks for it with hidden input, refuses live and full (`sk_…`) keys, checks
+  each permission against Stripe, saves it root-only and restarts integrations; `/api/status` then
+  shows `"stripe":"configured"`. **Staging has no webhook** (Stripe can't reach home-server): it
+  learns of payments from the customer's return to `/order/paid` and from the events poller
+  (every 2 minutes), so `STRIPE_WEBHOOK_SECRET` stays empty here. To replace the key: make a new
+  one, run `--set-stripe-key` again, then delete the old key in Stripe. Test cards:
+  `4242 4242 4242 4242` (paid), `4000 0000 0000 0002` (declined); any future date, any CVC.
 - Edit it with `sudo nano /etc/picklemypaddle/integrations.env`, then apply with
   `cd ~/picklemypaddle-infra && sudo ./staging/install.sh`.
 - `APP_ENV`, `PORT` and `PUBLIC_SITE_ORIGIN` are fixed in `compose.staging.yml`, so this file
