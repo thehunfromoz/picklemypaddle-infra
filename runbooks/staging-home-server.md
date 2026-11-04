@@ -116,7 +116,14 @@ those permissions. Nothing else on home-server, and nothing in any repo, holds t
   integrations settings. **To try the GST switch on staging:** add `GST_REGISTERED_FROM=<today,
   YYYY-MM-DD>`, re-run `install.sh`, accept a test order (its admin price says "includes GST"; one
   accepted earlier still says "no GST"), then empty the value and re-run `install.sh`. Staging
-  accepts a GST date without an ABN; production doesn't.
+  accepts a GST date without an ABN; production doesn't. A settings file made before SCRUM-81 has
+  no `GST_REGISTERED_FROM=` line at all, so add one rather than editing it (`sudo nano`, one setting
+  per line). Check what the service sees with
+  `sudo docker compose -p pmp-staging exec -T integrations printenv GST_REGISTERED_FROM`. If
+  `install.sh` then warns "the integrations image predates SCRUM-71", the service was still
+  starting: wait a minute and run `install.sh` again (it should then say the admin answers).
+  A receipt follows the day it is issued (SCRUM-84), not the day the order was accepted: an order
+  accepted without GST and paid after the date gets a "Tax invoice" (same total, GST included).
 - **Receipts (SCRUM-84):** `BUSINESS_NAME` (empty = `PickleMyPaddle`) is the seller's name on
   receipts and credit notes; until `BUSINESS_ABN` is set they show `ABN [To confirm: ABN]`. A
   document keeps the name, ABN and GST wording it was issued with: changing these settings only
