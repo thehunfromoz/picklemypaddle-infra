@@ -178,7 +178,7 @@ line="$(sudo cat "$home/.ssh/authorized_keys")"
 [[ "$(sudo stat -c '%a %U' "$home/.ssh/authorized_keys")" == "600 $U" ]] || die "11. authorized_keys must be 600, owned by $U"
 sudo passwd -S "$U" | awk '{print $2}' | grep -qx L || die "11. the password must be locked"
 id -nG "$U" | tr ' ' '\n' | grep -qxE 'docker|sudo|adm|lxd' && die "11. $U must not be in a privileged group"
-[[ "$(stat -c '%a %U' /etc/sudoers.d/pmp-claude)" == "440 root" ]] || die "11. the sudo rule must be 0440 root"
+[[ "$(sudo stat -c '%a %U' /etc/sudoers.d/pmp-claude)" == "440 root" ]] || die "11. the sudo rule must be 0440 root"
 sudo visudo -cqf /etc/sudoers.d/pmp-claude || die "11. the sudo rule must validate"
 for f in /usr/local/sbin/pmp-staging /usr/local/bin/pmp-staging-ssh; do
   [[ "$(stat -c '%a %U' "$f")" == "755 root" ]] || die "11. $f must be 0755 root"
@@ -201,6 +201,6 @@ cmp -s "$ROOT/staging/pmp-staging" /usr/local/sbin/pmp-staging || die "13. refre
 sudo "$ROOT/staging/claude-access.sh" off >"$WORK/out" 2>&1 || die "13. off failed"
 id "$U" >/dev/null 2>&1 && die "13. off should remove the user"
 for f in /etc/sudoers.d/pmp-claude /usr/local/sbin/pmp-staging /usr/local/bin/pmp-staging-ssh "$home"; do
-  [[ -e "$f" ]] && die "13. off should remove $f"
+  sudo test -e "$f" && die "13. off should remove $f"
 done
 pass "13. refresh keeps it current; off removes everything"
