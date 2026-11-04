@@ -135,7 +135,7 @@ them). In a cloud session, these need Attila, so give him exact click-paths or c
 - create or delete **tags/releases** (releases: GitHub → Releases → Draft new release);
 - change **repo settings / rulesets** (send importable ruleset JSON instead);
 - **delete branches**;
-- read some Actions/package APIs (job logs and artifacts return 403): make CI print failures
+- read some Actions/package APIs (artifacts return 403; job logs were readable again on 4 Nov 2026): make CI print failures
   as `::error` annotations, then read them from the check-run annotations API. Job
   conclusions and check-runs are readable;
 - post comments that act on a bot, such as `@dependabot recreate` or `@dependabot rebase`:
@@ -248,6 +248,9 @@ Anything else on home-server (secrets, Tailscale, other apps) is still Attila's.
 - A build that failed its checks is remembered as known-bad and not retried. To retry:
   `sudo rm -f /var/lib/pmp-staging/site.known-bad && sudo systemctl start
   pmp-staging-update.service` (the smoke run takes about 6 min).
+- **Ubuntu 26.04's `sudo` is sudo-rs:** it rejects many sudoers `Defaults` options (`requiretty`,
+  `log_allowed`, …), so keep sudoers files minimal and check them with `visudo -cf` (found by infra CI,
+  4 Nov 2026).
 - **Claude's access (SCRUM-92):** user `pmp-claude`, key forced to `pmp-staging`, one sudo rule;
   `install.sh --claude-access` / `--claude-access-off`; every call in `journalctl -t pmp-staging`.
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
