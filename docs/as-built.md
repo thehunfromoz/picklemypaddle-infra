@@ -29,6 +29,7 @@ Rules for this file:
 | Order backups | `/var/backups/picklemypaddle/<stack>` on each host, nightly, kept 30 days | Staging: timer installed by `install.sh`. Production: set up when orders open. Off-site copy: SCRUM-44 |
 | CRM and payments | HubSpot (test portal), Stripe (test mode) | HubSpot mirror live on staging (SCRUM-74); Stripe Checkout built (SCRUM-82): staging uses a test-mode restricted key and the events poller (no webhook); production's live key and webhook are made when orders are switched on |
 | Tailnet | Tailscale, tailnet `tail8bc7ae.ts.net`: home-server, the VPS (`pmp-prod`, tagged) and Attila's devices | Live; VPS joined 28 Oct 2026 (SCRUM-71) |
+| Claude Code | On the Mac Studio, project folder `~/Projects/picklemypaddle`; reaches home-server as `pmp-claude` through `pmp-staging` only ([runbook](../runbooks/claude-code-mac.md)) | Added by SCRUM-92 (4 Nov 2026); on once Attila runs `install.sh --claude-access` |
 | Order admin | Tailnet only: staging `https://home-server.tail8bc7ae.ts.net:8445/admin`, production `https://pmp-prod.tail8bc7ae.ts.net/admin` | Added by SCRUM-71/72; production answers 503 until orders are on |
 
 ## OVH
@@ -210,7 +211,12 @@ sit in the `orders` profile, and the gateway answers `/api/*` with 503 while `PM
 
 - Four repos under `thehunfromoz`: `picklemypaddle-site`, `picklemypaddle-integrations`,
   `picklemypaddle-agents`, `picklemypaddle-infra`. All public.
-- **Rulesets** on every repo require a PR and passing checks; only Attila merges to `main`.
+- **Rulesets** on every repo require a PR and passing checks (no approvals). Within a batch Attila
+  approved, Claude merges (SCRUM-92). A tag ruleset (`.github/rulesets/release-tags.json`, imported
+  on each repo) lets only admins, that is Attila, create, move or delete `v*` tags.
+- **Claude's GitHub identity (SCRUM-92):** a machine account (`thehunfromoz-claude`, planned) with
+  **Write** on the four repos only, signed in with `gh` on the Mac. Its login and 2FA recovery codes
+  are kept like the others.
   Required check names are listed in `docs/working-with-claude.md` (renaming a CI job changes its
   check name, so rulesets need updating).
 - **Images:** merge to `main` publishes `ghcr.io/thehunfromoz/<repo>:staging` and `:<commit>`; a
@@ -220,8 +226,9 @@ sit in the `orders` profile, and the gateway answers `/api/*` with 503 while `PM
   "staging test" prerelease from 8 Oct.
 - **Shared workflows** live in this repo (`.github/workflows/`) and the other repos call them
   `@main`.
-- The session that builds things cannot create tags or releases, change repo settings or rulesets,
-  or delete branches; those are Attila's (`docs/working-with-claude.md`).
+- A cloud session cannot create tags or releases, change repo settings or rulesets, or delete
+  branches. On the Mac, Claude can delete branches; tags, releases, settings and rulesets stay
+  Attila's (`docs/working-with-claude.md`).
 
 ## Other accounts
 
@@ -260,6 +267,8 @@ Names only; never the values.
 | Tailscale node keys | Inside `tailscaled`'s state on each machine (root) | Nothing to copy or rotate by hand; the VPS's key doesn't expire (tagged) |
 | Order database password, production | `/etc/picklemypaddle/postgres.env` on the VPS (root, 600) | Not created yet; made when orders are switched on |
 | VPS SSH key | Private key on Attila's Mac only; passphrase in Apple Passwords | Public half is in the VPS's `authorized_keys` |
+| Claude Code's home-server key | `~/.ssh/pmp-claude` on the Mac (no passphrase) | Public half in `pmp-claude`'s `authorized_keys` on home-server, forced to `pmp-staging` and limited to the Mac's address (SCRUM-92). Revoke: `install.sh --claude-access-off` |
+| Claude's GitHub login | `gh` on the Mac (macOS Keychain) | The machine account's; revoke by removing it as a collaborator. If a fine-grained token is used instead, it expires after 90 days: calendar it |
 | 2FA recovery codes (OVH, Cloudflare, Resend, GitHub, Jira) | Attila's iCloud Notes, one note per service | 2FA codes themselves: Google Authenticator, synced to a Google account |
 | Account logins (OVH, Cloudflare, Google, GitHub, Atlassian, HubSpot, Stripe, Resend) | Apple Passwords (iCloud Keychain) | Only Attila can open it |
 

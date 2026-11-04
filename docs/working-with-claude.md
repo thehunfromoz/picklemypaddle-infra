@@ -3,8 +3,14 @@
 Read this first in every new Claude session. It's the hand-over between sessions: how we
 work, what's decided, and what the build session can't do. Detail lives in Jira, the repo
 READMEs and `runbooks/`; where every account, server and secret lives is in
-[as-built.md](as-built.md). Keep this file short and current; update it in the same PR as any
-change to how we work.
+[as-built.md](as-built.md); which tests guard what is in [qa-gates.md](qa-gates.md). Keep this
+file short and current; update it in the same PR as any change to how we work.
+
+**Where Claude works (SCRUM-92, from 4 Nov 2026):** mainly **Claude Code on Attila's Mac Studio**, in
+`~/Projects/picklemypaddle` ([runbooks/claude-code-mac.md](../runbooks/claude-code-mac.md)). There it
+has Docker, reaches home-server through `ssh pmp-staging …` only, and merges approved work. Cloud
+sessions (claude.ai/code) still work for Jira, research and docs, with the limits listed under
+"Cloud sessions" below.
 
 ## The project
 
@@ -42,13 +48,29 @@ the record. Epics:
 
 ## How we work
 
-- **Quiz before building:** every story gets acceptance criteria, tests and a Definition of
-  Done (CI green, deployed to staging with a green `staging/home-server` tick, Attila's
-  approval where the story says so) before work starts.
+The loop (decided 4 Nov 2026, SCRUM-92): **refine → batch approval → build and merge → staging →
+UAT → next batch.**
+
+- **Quiz before building:** every story gets acceptance criteria, tests (named against the rows
+  of [qa-gates.md](qa-gates.md)) and a Definition of Done before work starts.
+- **Batch approval:** before building, Claude sends Attila a short batch summary: the stories, the
+  PRs it expects in each repo, what each changes, its recommendations, and anything touching
+  production, security controls or what runs as root on home-server (`staging/pmp-staging`,
+  `claude-access.sh`, `install.sh`), flagged. Nothing is built until he approves. Work found
+  outside the approved batch goes back to him first.
+- **Definition of Done (standard):** CI green, with the new tests seen in the counts; **a regression
+  test for every acceptance criterion, each seen failing once**; the story's qa-gates row updated;
+  deployed to staging with a green `staging/home-server` tick; docs and runbooks updated in the same
+  PR; and **Attila's UAT**.
+- **UAT is Attila's sign-off** that what was built is what was needed. When a story is on staging,
+  Claude posts an acceptance script on the ticket (what to try, click-paths, what he should see,
+  any deviation from what was agreed, which tests ran) and moves it to **QA** (= waiting for UAT).
+  Done follows only his OK; a "not quite" goes back to In Progress with his notes. The next batch
+  starts after the current one's UAT.
 - **Jira statuses (Claude moves tickets).** List the ticket's transitions
   (`getTransitionsForJiraIssue`) before moving it: the ids differ by issue type. **Stories and
-  Bugs** (checked 29 Oct 2026): To Do 11, In Progress 18, **BLOCKED 3**, Done 21, Assessment 23
-  (parked), CLOSED 2; there is no transition back to BACKLOG. **Tasks** (SCRUM-59 to 61, 22 Oct)
+  Bugs** (checked 29 Oct 2026, again 4 Nov): To Do 11, In Progress 18, **BLOCKED 3**, **QA 20
+  (= waiting for Attila's UAT)**, Done 21, Assessment 23 (parked), CLOSED 2; there is no transition back to BACKLOG. **Tasks** (SCRUM-59 to 61, 22 Oct)
   offer only Begin Work (2) and **Done (3)**, so never reuse ids across types.
   - **In Progress** only while the work is actively going on, including fixing a failed check.
   - **BLOCKED** whenever it is waiting on anything else: Attila (an approval, a manual step, a
@@ -57,13 +79,22 @@ the record. Epics:
     and a comment saying exactly what is needed, from whom, and when. Move it back to In Progress
     when the work resumes.
   - Don't leave a story in MERGE (or another in-between status) once its PR is merged.
-  - **Done** only once the acceptance checks are verified and Attila has approved where the
-    ticket says so. A loose end that doesn't affect the story's purpose can go to a new linked
+  - **QA** once the story is on staging and its acceptance script is posted; it waits there for
+    Attila's UAT.
+  - **Done** only once the acceptance checks are verified and Attila has given his UAT OK. A loose end that doesn't affect the story's purpose can go to a new linked
     story (as SCRUM-79 did for SCRUM-30) instead of holding it open.
   - Anything that must be finished before go-live "blocks" SCRUM-11.
 - **Before marking anything Blocked or Done, verify it** (CI results, commit statuses,
   `version.txt`). Don't assume.
-- **Only Attila merges to `main`.** Rulesets enforce PRs and passing checks on all repos.
+- **Merging (from 4 Nov 2026):** within an approved batch, **Claude merges its own PRs** (squash)
+  when: the required checks are green and the new tests actually ran; the **pr-review-toolkit**
+  review (agents that didn't write the code) has checked the diff against the acceptance criteria and
+  its findings are fixed or answered on the PR; and the branch is current with `main`. After merging,
+  Claude watches `staging/home-server` and fixes forward or reverts (by PR, same rules) if it goes
+  red. A merge only reaches staging: production changes only when Attila deploys a release.
+  **Attila merges** a PR that widens Claude's own access (this guide's merge rule, `pmp-staging`,
+  `claude-access.sh`, the rulesets) unless the batch says otherwise. Rulesets enforce PRs and passing
+  checks on all repos; **`v*` tags (releases) are Attila's** (tag ruleset, SCRUM-92).
 - **Branches:** `scrum-<n>-<short-name>`. Squash noisy work into clean commits before review.
   The session's clones are **shallow**: don't `commit --amend` or squash with
   `reset --soft` onto a shallow boundary (it once produced a parentless commit and an
@@ -95,9 +126,11 @@ the record. Epics:
 - **The stop hook may say a branch is unpushed** when it's pushed but its tracking ref wasn't
   fetched: `git fetch origin <branch>` clears it.
 
-## What the build session can't do (GitHub proxy limits)
+## Cloud sessions: what they can't do (GitHub proxy limits)
 
-These need Attila, so give him exact click-paths or commands:
+Claude Code on the Mac has none of these limits except tags and releases (Attila's by rule and
+ruleset), repo settings and rulesets (admin only), and bot commands (Dependabot reads who posts
+them). In a cloud session, these need Attila, so give him exact click-paths or commands:
 
 - create or delete **tags/releases** (releases: GitHub → Releases → Draft new release);
 - change **repo settings / rulesets** (send importable ruleset JSON instead);
@@ -126,8 +159,11 @@ These need Attila, so give him exact click-paths or commands:
 - create PRs with `gh pr create` (no GraphQL): use
   `gh api repos/<owner>/<repo>/pulls -f title=… -f head=… -f base=main -F body=@file`.
 
-Nothing on Attila's LAN can be reached from the session. home-server results come back
-through GitHub commit statuses, or Attila pastes command output.
+Nothing on Attila's LAN can be reached from a cloud session: home-server results come back through
+GitHub commit statuses, or Attila pastes command output. **From the Mac, Claude runs
+`ssh pmp-staging <command>`** (status, logs, update, retry, smoke, install from `main`, CLIs,
+read-only SQL, setting names), listed in the [staging runbook](../runbooks/staging-home-server.md#claude-codes-access-scrum-92).
+Anything else on home-server (secrets, Tailscale, other apps) is still Attila's.
 
 ## CI and releases
 
@@ -212,6 +248,8 @@ through GitHub commit statuses, or Attila pastes command output.
 - A build that failed its checks is remembered as known-bad and not retried. To retry:
   `sudo rm -f /var/lib/pmp-staging/site.known-bad && sudo systemctl start
   pmp-staging-update.service` (the smoke run takes about 6 min).
+- **Claude's access (SCRUM-92):** user `pmp-claude`, key forced to `pmp-staging`, one sudo rule;
+  `install.sh --claude-access` / `--claude-access-off`; every call in `journalctl -t pmp-staging`.
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
 - **NSW public holidays (SCRUM-73)** live in integrations `src/orders/holidays.ts` (nsw.gov.au,

@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# pmp-staging: the only thing Claude Code may run on home-server (SCRUM-92).
+#
+# Claude reaches home-server as the user `pmp-claude`, whose SSH key is forced to
+# pmp-staging-ssh, which runs `sudo -n /usr/local/sbin/pmp-staging <args>`. The sudoers entry
+# allows that one file and nothing else, and `pmp-claude` is not in the docker group
+# (which is root-equivalent). So what Claude can do on home-server is exactly the list below.
+#
+#   status                       timers, last update, containers, versions, known-bad builds
+#   logs <service> [lines]       last lines (default 100, at most 500) of: site integrations
+#                                gateway editor postgres updater backup
+#   update                       run the updater now (as the 2-minute timer would)
+#   retry <site|integrations|editor>   forget a known-bad build, then update
+#   smoke                        run the live site build's own smoke tests (about 6 min)
+#   install [--check]            install.sh from origin/main of picklemypaddle-infra, in a
+#                                root-owned checkout (never --set-*, never --tailscale*)
+#   cli <name> [args]            an integrations CLI: backdate-order unpaid-run retention-run
+#                                crm-resync hubspot-setup (staging data, test portal)
+#   sql "<select …>"             one read-only query on the staging order database
+#   settings                     which settings are set: names only, never values
+#   help                         this list
+#
+# Every call, allowed or refused, is logged to journald with the tag pmp-staging.
+# Secrets are never read or printed: `settings` reports only whether each key has a value.
+set -euo pipefail
+
+# Real paths. A test run (not root) may point them at a sandbox with PMP_TEST_ROOT; as root
+# (under sudo, which also resets the environment) the override is ignored.
+T=""
+if [[ $EUID -ne 0 && -n "${PMP_TEST_ROOT:-}" ]]; then T="$PMP_TEST_ROOT"; else
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+fi
+STACK_DIR="$T/opt/picklemypaddle/staging"
+STATE_DIR="$T/var/lib/pmp-staging"
+SRC_DIR="$T/opt/picklemypaddle/src/picklemypaddle-infra"
+SECRETS_DIR="$T/etc/picklemypaddle"
+INFRA_URL="https://github.com/thehunfromoz/picklemypaddle-infra.git"
+SMOKE_IMAGE="ghcr.io/thehunfromoz/picklemypaddle-site-smoke"
+CALLER="${SUDO_USER:-$(id -un)}"
+
+log() { logger -t pmp-staging -- "user=$CALLER $*" 2>/dev/null || true; }
+refuse() { log "REFUSED: $1 (args: ${ARGS})"; echo "pmp-staging: refused: $1" >&2; echo "Run 'pmp-staging help' for what is allowed." >&2; exit 2; }
+compose() { docker compose -p pmp-staging --project-directory "$STACK_DIR" -f "$STACK_DIR/compose.staging.yml" "$@"; }
+
+ARGS="$*"
+# Arguments are plain words: letters, digits and . _ : = - / , @ + only, except the one SQL text.
+safe_word() { [[ "$1" =~ ^[A-Za-z0-9._:=/,@+-]{1,200}$ ]]; }
+
+# The body is one function, so bash has read all of it before it runs: `install` replaces this file.
+main() {
+cmd="${1:-help}"
+shift || true
+log "run: $cmd${*:+ $*}"
+
+case "$cmd" in
+  help|-h|--help)
+    sed -n '/^#   status/,/^#   help/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+
+  status)
+    [[ $# -eq 0 ]] || refuse "status takes no arguments"
+    echo "== timers"; systemctl list-timers --no-pager pmp-staging-update.timer pmp-staging-backup.timer || true
+    echo "== last update run"; systemctl status --no-pager -n 0 pmp-staging-update.service || true
+    echo "== containers"; compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}\t{{.Image}}' || true
+    echo "== live site commit"; curl -fsS --max-time 5 http://127.0.0.1:8088/version.txt || echo "(not answering)"
+    echo; echo "== api status"; curl -fsS --max-time 5 http://127.0.0.1:8088/api/status || echo "(not answering)"
+    echo; echo "== known-bad builds"
+    found=false
+    for f in "$STATE_DIR"/*.known-bad; do [[ -e "$f" ]] || continue; found=true; printf '%s: %s\n' "$(basename "$f" .known-bad)" "$(head -c 200 "$f")"; done
+    $found || echo "(none)"
+    echo "== infra checkout used by install"; git -C "$SRC_DIR" log -1 --format='%h %s (%cr)' 2>/dev/null || echo "(not cloned yet)"
+    ;;
+
+  logs)
+    svc="${1:-}"; lines="${2:-100}"
+    [[ $# -le 2 ]] || refuse "logs takes a service and an optional line count"
+    [[ "$lines" =~ ^[0-9]{1,3}$ && "$lines" -ge 1 && "$lines" -le 500 ]] || refuse "line count must be 1 to 500"
+    case "$svc" in
+      site|integrations|gateway|editor|postgres) compose logs --no-color --tail "$lines" "$svc" ;;
+      updater) journalctl -u pmp-staging-update.service -n "$lines" --no-pager ;;
+      backup) journalctl -u pmp-staging-backup.service -n "$lines" --no-pager ;;
+      *) refuse "unknown service '${svc}' (site integrations gateway editor postgres updater backup)" ;;
+    esac
+    ;;
+
+  update)
+    [[ $# -eq 0 ]] || refuse "update takes no arguments"
+    systemctl start pmp-staging-update.service
+    journalctl -u pmp-staging-update.service -n 40 --no-pager
+    ;;
+
+  retry)
+    [[ $# -eq 1 ]] || refuse "retry takes one service"
+    case "$1" in site|integrations|editor) ;; *) refuse "retry is for site, integrations or editor" ;; esac
+    rm -f "$STATE_DIR/$1.known-bad"
+    log "cleared $1.known-bad"
+    systemctl start pmp-staging-update.service
+    journalctl -u pmp-staging-update.service -n 40 --no-pager
+    ;;
+
+  smoke)
+    [[ $# -eq 0 ]] || refuse "smoke takes no arguments (it tests the live site build)"
+    id="$(compose ps -q site)"; [[ -n "$id" ]] || { echo "the site isn't running" >&2; exit 1; }
+    rev="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$id")"
+    [[ "$rev" =~ ^[0-9a-f]{7,40}$ ]] || { echo "the live site image has no revision label" >&2; exit 1; }
+    log "smoke tests for site $rev"
+    docker run --rm --network host --shm-size=1g -e BASE_URL=http://127.0.0.1:8088 -e EXPECT_STAGING=1 \
+      "$SMOKE_IMAGE:$rev" 2>&1 | tail -40
+    ;;
+
+  install)
+    check=""
+    case "$#:${1:-}" in
+      0:) ;;
+      1:--check) check="--check" ;;
+      *) refuse "install takes only --check (secrets and Tailscale stay with Attila)" ;;
+    esac
+    if [[ ! -d "$SRC_DIR/.git" ]]; then
+      install -d -m 0755 "$(dirname "$SRC_DIR")"
+      git clone -q --depth 1 "$INFRA_URL" "$SRC_DIR"
+    fi
+    # Only ever what is merged to main, never a branch or local edit.
+    git -C "$SRC_DIR" fetch -q --depth 1 origin main
+    git -C "$SRC_DIR" checkout -q --force --detach FETCH_HEAD
+    git -C "$SRC_DIR" clean -qfdx
+    log "install${check:+ $check} from infra $(git -C "$SRC_DIR" rev-parse --short HEAD)"
+    echo "infra $(git -C "$SRC_DIR" log -1 --format='%h %s')"
+    "$SRC_DIR/staging/install.sh" ${check:+"$check"}
+    ;;
+
+  cli)
+    name="${1:-}"; [[ $# -ge 1 ]] && shift
+    case "$name" in
+      backdate-order|unpaid-run|retention-run|crm-resync|hubspot-setup) ;;
+      *) refuse "unknown CLI '${name}' (backdate-order unpaid-run retention-run crm-resync hubspot-setup)" ;;
+    esac
+    [[ $# -le 6 ]] || refuse "too many arguments"
+    for a in "$@"; do safe_word "$a" || refuse "argument '${a}' has characters that aren't allowed"; done
+    compose exec -T integrations node "dist/cli/$name.js" "$@"
+    ;;
+
+  sql)
+    [[ $# -eq 1 ]] || refuse "sql takes one quoted query"
+    q="$1"
+    [[ ${#q} -le 2000 ]] || refuse "query too long"
+    lower="$(tr '[:upper:]' '[:lower:]' <<<"$q")"
+    [[ "$lower" =~ ^[[:space:]]*(select|with|explain)[[:space:]] ]] || refuse "only select, with or explain queries"
+    [[ "${q%;}" != *";"* ]] || refuse "one statement only"
+    [[ "$q" != *\\* ]] || refuse "no psql backslash commands"
+    if grep -qwiE 'insert|update|delete|truncate|drop|alter|create|grant|revoke|commit|rollback|begin|set|reset|copy|call|do|vacuum|lock|pg_read_file|pg_ls_dir|lo_import|lo_export|dblink' <<<"$q"; then
+      refuse "the query uses a word that isn't allowed in a read-only query"
+    fi
+    # Also read-only at the database: the session can't write even if the check above missed something.
+    compose exec -T -e PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15000' \
+      postgres psql -U pmp -d pmp -v ON_ERROR_STOP=1 -P pager=off -c "$q"
+    ;;
+
+  settings)
+    [[ $# -eq 0 ]] || refuse "settings takes no arguments"
+    for f in integrations.env editor.env; do
+      echo "== $f"
+      [[ -f "$SECRETS_DIR/$f" ]] || { echo "(missing)"; continue; }
+      while IFS= read -r line; do
+        [[ "$line" =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+        if [[ -n "${BASH_REMATCH[2]}" ]]; then echo "${BASH_REMATCH[1]}: set"; else echo "${BASH_REMATCH[1]}: empty"; fi
+      done <"$SECRETS_DIR/$f"
+    done
+    ;;
+
+  *)
+    refuse "unknown command '${cmd}'"
+    ;;
+esac
+}
+
+main "$@"
+exit

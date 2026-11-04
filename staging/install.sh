@@ -14,6 +14,9 @@
 #                                          admin (SCRUM-71/72)
 #   sudo ./staging/install.sh --set-stripe-key  store (or replace) the Stripe TEST-mode restricted
 #                                          key (typed hidden, checked with Stripe) (SCRUM-82)
+#   sudo ./staging/install.sh --claude-access  let Claude Code in as pmp-claude, limited to the
+#                                          pmp-staging command (SCRUM-92)
+#   sudo ./staging/install.sh --claude-access-off  remove that access completely
 #
 # Safe to re-run: it keeps your existing /opt/picklemypaddle/staging/.env.
 # You run this by hand after reviewing a change; nothing runs it automatically.
@@ -44,8 +47,10 @@ case "${1:-}" in
   --set-stripe-key) SET_STRIPE_KEY=true ;;
   --tailscale) exec "$SRC_DIR/tailscale.sh" on ;;
   --tailscale-off) exec "$SRC_DIR/tailscale.sh" off ;;
+  --claude-access) exec "$SRC_DIR/claude-access.sh" on ;;
+  --claude-access-off) exec "$SRC_DIR/claude-access.sh" off ;;
   "") ;;
-  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--set-admin-logins|--set-stripe-key|--tailscale|--tailscale-off]" >&2; exit 2 ;;
+  *) echo "usage: sudo $0 [--check|--set-token|--set-editor-app|--set-admin-logins|--set-stripe-key|--tailscale|--tailscale-off|--claude-access|--claude-access-off]" >&2; exit 2 ;;
 esac
 
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -355,6 +360,11 @@ stale=""
 for f in compose.staging.yml gateway/Caddyfile update.sh backup.sh; do
   cmp -s "$SRC_DIR/$f" "$DEST_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
+# SCRUM-92: Claude Code's commands, only if its access is on.
+if id pmp-claude >/dev/null 2>&1; then
+  cmp -s "$SRC_DIR/pmp-staging" /usr/local/sbin/pmp-staging 2>/dev/null || stale="$stale pmp-staging"
+  cmp -s "$SRC_DIR/pmp-staging-ssh" /usr/local/bin/pmp-staging-ssh 2>/dev/null || stale="$stale pmp-staging-ssh"
+fi
 for f in pmp-staging-update.service pmp-staging-update.timer pmp-staging-backup.service pmp-staging-backup.timer; do
   cmp -s "$SRC_DIR/systemd/$f" "$UNIT_DIR/$f" 2>/dev/null || stale="$stale $f"
 done
@@ -456,6 +466,7 @@ systemctl enable --now pmp-staging-update.timer >/dev/null
 ok "timer enabled"
 systemctl enable --now pmp-staging-backup.timer >/dev/null
 ok "nightly backup enabled (02:30 Sydney time, kept $(sed -n 's/^BACKUP_KEEP_DAYS=//p' "$DEST_DIR/.env" | tail -n1 || true) days; SCRUM-64)"
+"$SRC_DIR/claude-access.sh" refresh   # SCRUM-92: no-op unless Claude's access is on
 
 # Refresh the gateway BEFORE the first update: the update runs the smoke tests
 # through the gateway, and a running gateway keeps its old Caddyfile until it is

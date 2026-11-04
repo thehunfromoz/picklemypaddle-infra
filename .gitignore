@@ -5,3 +5,6 @@ node_modules/
 *.log
 .DS_Store
 __pycache__/
+
+# Python wheels (e.g. shellcheck-py downloaded into the checkout; one slipped into PR #46)
+*.whl

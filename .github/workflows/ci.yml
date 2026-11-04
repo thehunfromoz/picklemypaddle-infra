@@ -34,12 +34,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck staging/*.sh production/*.sh tests/*.sh
+        run: shellcheck staging/*.sh staging/pmp-staging staging/pmp-staging-ssh production/*.sh tests/*.sh
       # SCRUM-38. Kept in this job so the required check names don't change.
       - name: Tailscale Serve config checks (unit)
         run: python3 -m unittest discover -s tests -p '*_test.py' -v
       - name: install.sh --tailscale / --tailscale-off (stand-in tailscale)
         run: bash tests/tailscale.test.sh
+      # SCRUM-92. Part 2 creates a real pmp-claude user, sudo rule and forced command on the runner.
+      - name: Claude Code's home-server access is limited to pmp-staging
+        run: bash tests/claude-access.test.sh
       - name: Compose file is valid
         run: |
           cp staging/.env.example staging/.env
