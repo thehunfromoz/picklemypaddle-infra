@@ -62,6 +62,16 @@ UAT → next batch.**
   test for every acceptance criterion, each seen failing once**; the story's qa-gates row updated;
   deployed to staging with a green `staging/home-server` tick; docs and runbooks updated in the same
   PR; and **Attila's UAT**.
+- **Test report on every story (decided 4 Nov 2026):** before UAT, Claude posts one comment on the
+  story with two parts:
+  - **What the automation covers:** a short table listing each acceptance criterion and the unit,
+    integration, e2e and staging-smoke tests that cover it (file and test names), the counts from
+    the CI run that merged it, and anything deliberately not automated, with the reason.
+  - **Suggested UAT:** at most **10 manual checks**, chosen for what automation can't judge well:
+    whether the copy and layout read right, real devices and email clients, real-world steps
+    (Stripe test cards, Gmail replies), and whether it does what was actually needed. Each has
+    steps and an expected result. Further checks are marked **optional**, with why and how much
+    they matter.
 - **UAT is Attila's sign-off** that what was built is what was needed. When a story is on staging,
   Claude posts an acceptance script on the ticket (what to try, click-paths, what he should see,
   any deviation from what was agreed, which tests ran) and moves it to **QA** (= waiting for UAT).
