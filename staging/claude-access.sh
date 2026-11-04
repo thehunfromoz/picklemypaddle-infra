@@ -31,10 +31,11 @@ install_commands() {
   cat >"$tmp" <<SUDO
 # SCRUM-92: Claude Code (user $USER_NAME) may run pmp-staging as root, and nothing else.
 # Installed by picklemypaddle-infra staging/claude-access.sh; remove with install.sh --claude-access-off.
-Defaults:$USER_NAME !requiretty, env_reset, log_allowed, log_denied
+# No Defaults line: Ubuntu 26.04's sudo (sudo-rs) rejects options like requiretty and log_*.
+# env_reset is the default anyway; pmp-staging logs every call itself.
 $USER_NAME ALL=(root) NOPASSWD: $BIN
 SUDO
-  visudo -cqf "$tmp" || { rm -f "$tmp"; fail "the sudo rule didn't validate; nothing changed"; }
+  visudo -cqf "$tmp" || { rm -f "$tmp"; fail "the sudo rule didn't validate, so none was installed (Claude can log in but run nothing)"; }
   install -o root -g root -m 0440 "$tmp" "$SUDOERS"
   rm -f "$tmp"
 }
