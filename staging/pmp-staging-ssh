@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Forced command for pmp-claude's SSH key (SCRUM-92). Splits the requested command into words
+# WITHOUT a shell (no globbing, no $(…), no ; or |), then hands them to pmp-staging through sudo.
+# A quoted argument ('…' or "…") stays one word, so `sql "select …"` works.
+set -euo pipefail
+[[ $EUID -ne 0 && -n "${PMP_TEST_ROOT:-}" ]] || PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+words=()
+tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+if ! python3 -c 'import shlex, sys
+for w in shlex.split(sys.argv[1]): sys.stdout.write(w + "\0")' "${SSH_ORIGINAL_COMMAND:-help}" >"$tmp" 2>/dev/null; then
+  logger -t pmp-staging -- "user=$(id -un) REFUSED: unreadable command" 2>/dev/null || true
+  echo "pmp-staging: refused: couldn't read that command (unbalanced quotes?)" >&2
+  exit 2
+fi
+while IFS= read -r -d '' w; do words+=("$w"); done <"$tmp"
+[[ ${#words[@]} -gt 0 ]] || words=(help)
+# The command name may be typed too: `ssh pmp-claude@home-server pmp-staging status`.
+[[ "${words[0]}" == pmp-staging ]] && words=("${words[@]:1}")
+
+rm -f "$tmp"; trap - EXIT
+# Tests (not root) run the sandboxed copy directly; for real it always goes through sudo.
+if [[ $EUID -ne 0 && -n "${PMP_TEST_ROOT:-}" && -n "${PMP_STAGING_BIN:-}" ]]; then
+  exec "$PMP_STAGING_BIN" "${words[@]}"
+fi
+exec sudo -n /usr/local/sbin/pmp-staging "${words[@]}"

@@ -24,8 +24,9 @@ home-server ── pmp-staging-backup.timer (02:30) ─► backup.sh ─► /var
   internal network, no published port). It is started before any update and never replaced by
   one; see "Order database" below.
 - **Pull, not push.** home-server checks GHCR every 2 minutes. GitHub never connects to
-  your LAN, and home-server never runs code from the public repos, only images that
-  passed CI.
+  your LAN. The timer only ever runs images that passed CI. The one exception is
+  `install.sh`, which runs from a checkout of this repo: by you, or by Claude through
+  `pmp-staging install`, which uses only what is merged to `main` (SCRUM-92).
 - **Smoke tests.** Once the health check passes, the updater runs the Playwright tests built
   from the same commit (`picklemypaddle-site-smoke:<commit>`) against staging through the
   gateway. If they fail, staging rolls back exactly as for a failed health check.
@@ -522,6 +523,52 @@ Outside production, orders from `@example.com` are smoke orders: the service del
 their photos, 24 hours later. Staging allows 60 orders per IP per hour
 (`STAGING_ORDER_LIMIT_PER_IP_HOUR` in `.env`), because the smoke tests, Tailscale visitors and your
 own tests all reach the service from the same Docker bridge address; production keeps 5.
+
+## Claude Code's access (SCRUM-92)
+
+Claude Code runs on the Mac ([runbooks/claude-code-mac.md](claude-code-mac.md)) and comes in as
+the user **`pmp-claude`**. That user has no password, is in no privileged group (not `docker`,
+which is root-equivalent), and its only SSH key is forced to one command, `pmp-staging`.
+`pmp-staging` runs as root through one sudo rule and does only this:
+
+| Command | Does |
+| --- | --- |
+| `status` | timers, last update run, containers, live commit, `/api/status`, known-bad builds |
+| `logs <site\|integrations\|gateway\|editor\|postgres\|updater\|backup> [lines]` | last 1–500 lines |
+| `update` | runs the updater now |
+| `retry <site\|integrations\|editor>` | forgets a known-bad build, then updates |
+| `smoke` | the live site build's own smoke tests (about 6 min) |
+| `install [--check]` | `install.sh` from `origin/main`, in the root-owned checkout `/opt/picklemypaddle/src/picklemypaddle-infra` |
+| `cli <backdate-order\|unpaid-run\|retention-run\|crm-resync\|hubspot-setup> [args]` | an integrations CLI, plain-word arguments only |
+| `sql "<select …>"` | one read-only query (also read-only at the database, 15 s limit) |
+| `settings` | which settings are set, by name; never the values |
+
+It never sets secrets (`--set-*` stays with you), never turns Tailscale on or off, and can't touch
+your other apps. Every call, refused or not, goes to the journal:
+
+```bash
+journalctl -t pmp-staging --since today     # what Claude ran (and what was refused)
+journalctl _COMM=sudo --since today | grep pmp-claude
+```
+
+**Turn it on (once):** on the Mac, make the key (runbook `claude-code-mac.md`), then on home-server,
+from an SSH session started on the Mac (so the address it suggests is the Mac's):
+
+```bash
+cd ~/picklemypaddle-infra && git pull
+sudo ./staging/install.sh --claude-access   # paste the Mac's ~/.ssh/pmp-claude.pub; accept the address
+```
+
+Then from the Mac: `ssh pmp-claude@home-server status`. A plain `install.sh` keeps `pmp-staging`
+current while access is on. If `sshd` has an `AllowUsers` list, it says so: add `pmp-claude` to it.
+
+**Turn it off (kill switch):** `sudo ./staging/install.sh --claude-access-off`. It ends Claude's
+sessions and removes the user, key, sudo rule and both commands. The root-owned infra checkout stays
+(harmless; `sudo rm -r /opt/picklemypaddle/src` to remove it).
+
+**Changing what Claude may do** means changing `staging/pmp-staging` in this repo. Changes to it, to
+`claude-access.sh` or to `install.sh` widen what runs as root on home-server, so Claude always flags
+them in the batch summary for your approval.
 
 ## Day to day
 
