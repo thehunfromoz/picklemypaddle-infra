@@ -34,7 +34,10 @@ pass() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 die() {
   printf '  \033[31m✗\033[0m %s\n' "$*" >&2
   [[ -f "$WORK/out" ]] && sed 's/^/    | /' "$WORK/out" >&2
-  [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error title=claude-access test::$*"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    detail=""; [[ -f "$WORK/out" ]] && detail="$(tail -n 8 "$WORK/out" | sed 's/\x1b\[[0-9;]*m//g' | awk '{printf "%s%%0A", $0}')"
+    echo "::error title=claude-access test::$*%0A$detail"
+  fi
   exit 1
 }
 
