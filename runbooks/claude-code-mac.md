@@ -112,7 +112,7 @@ sudo ./staging/install.sh --claude-access /tmp/pmp-claude.pub <the Mac's tailnet
 ```
 
 With no arguments, `sudo ./staging/install.sh --claude-access` asks for the pasted key and the address
-instead. It suggests an address only if it can read the session's own (often not, under `sudo`), and
+instead. The address must be exactly one IPv4 or IPv6 address: `*`, lists and ranges are refused. It suggests an address only if it can read the session's own (often not, under `sudo`), and
 it won't continue without one. What it suggests, if you SSH in over the tailnet, is the right answer.
 
 Check from the Mac: `ssh pmp-staging status` shows the timers and containers, and
