@@ -29,7 +29,7 @@ Rules for this file:
 | Order backups | `/var/backups/picklemypaddle/<stack>` on each host, nightly, kept 30 days | Staging: timer installed by `install.sh`. Production: set up when orders open. Off-site copy: SCRUM-44 |
 | CRM and payments | HubSpot (test portal), Stripe (test mode) | HubSpot mirror live on staging (SCRUM-74); Stripe Checkout built (SCRUM-82): staging uses a test-mode restricted key and the events poller (no webhook); production's live key and webhook are made when orders are switched on |
 | Tailnet | Tailscale, tailnet `tail8bc7ae.ts.net`: home-server, the VPS (`pmp-prod`, tagged) and Attila's devices | Live; VPS joined 28 Oct 2026 (SCRUM-71) |
-| Claude Code | On the Mac Studio, project folder `~/Projects/picklemypaddle`; reaches home-server as `pmp-claude` through `pmp-staging` only, **over the tailnet** (works only while Tailscale is up on the Mac; [runbook](../runbooks/claude-code-mac.md)) | Added by SCRUM-92 (4 Nov 2026); access on since 5 Nov 2026 |
+| Claude Code | On the Mac Studio, project folder `~/Projects/picklemypaddle`; model `opusplan`, permissions in the workspace `settings.json` (infra `workspace/`); reaches home-server as `pmp-claude` through `pmp-staging` only, **over the tailnet** (works only while Tailscale is up on the Mac; [runbook](../runbooks/claude-code-mac.md)) | Added by SCRUM-92 (4 Nov 2026); access on since 5 Nov 2026 |
 | Order admin | Tailnet only: staging `https://home-server.tail8bc7ae.ts.net:8445/admin`, production `https://pmp-prod.tail8bc7ae.ts.net/admin` | Added by SCRUM-71/72; production answers 503 until orders are on |
 
 ## OVH
