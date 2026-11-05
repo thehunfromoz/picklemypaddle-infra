@@ -551,18 +551,30 @@ journalctl -t pmp-staging --since today     # what Claude ran (and what was refu
 journalctl _COMM=sudo --since today | grep pmp-claude
 ```
 
-**Turn it on (once):** on the Mac, make the key (runbook `claude-code-mac.md`), then on home-server,
-from an SSH session started on the Mac (so the address it suggests is the Mac's):
+**It comes in over the tailnet, not the LAN.** On the Mac, `~/.ssh/config` has `Host pmp-staging` with
+`HostName home-server.tail8bc7ae.ts.net`, and the key is locked to the Mac's **tailnet address**
+(`tailscale ip -4` on the Mac). That address doesn't change, so no DHCP reservation is needed. MagicDNS
+puts even a plain `ssh home-server` from the Mac on the tailnet (observed 5 Nov 2026: `SSH_CLIENT` on
+home-server showed the Mac's tailnet address), so that is the right address to give (the installer may suggest it, but `sudo` often hides the session's address, so
+expect to type it). Access therefore works **only while Tailscale is up on the Mac**.
+
+**Turn it on (once):** on the Mac, make the key (runbook `claude-code-mac.md`), copy the public key to
+home-server, then on home-server:
 
 ```bash
 cd ~/picklemypaddle-infra && git pull
-sudo ./staging/install.sh --claude-access   # paste the Mac's ~/.ssh/pmp-claude.pub; accept the address
+sudo ./staging/install.sh --claude-access /tmp/pmp-claude.pub <the Mac's tailnet address>
 ```
 
-Then from the Mac: `ssh pmp-claude@home-server status`. A plain `install.sh` keeps `pmp-staging`
+Without the two arguments it asks for the pasted key and the address instead. It suggests an address
+only when it can find one (`sudo` hides the session's own; it then tries the login record, then your
+logins if they all come from one address), and it won't go on without one.
+
+Then from the Mac: `ssh pmp-staging status`. A plain `install.sh` keeps `pmp-staging`
 current while access is on. If `sshd` has an `AllowUsers` list, it says so: add `pmp-claude` to it.
 
-**Turn it off (kill switch):** `sudo ./staging/install.sh --claude-access-off`. It ends Claude's
+**Turn it off (kill switch):** `sudo ./staging/install.sh --claude-access-off`. To pause it from the Mac
+instead, quit Tailscale there: Claude can't reach home-server until it is back. It ends Claude's
 sessions and removes the user, key, sudo rule and both commands. The root-owned infra checkout stays
 (harmless; `sudo rm -r /opt/picklemypaddle/src` to remove it).
 

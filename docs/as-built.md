@@ -29,7 +29,7 @@ Rules for this file:
 | Order backups | `/var/backups/picklemypaddle/<stack>` on each host, nightly, kept 30 days | Staging: timer installed by `install.sh`. Production: set up when orders open. Off-site copy: SCRUM-44 |
 | CRM and payments | HubSpot (test portal), Stripe (test mode) | HubSpot mirror live on staging (SCRUM-74); Stripe Checkout built (SCRUM-82): staging uses a test-mode restricted key and the events poller (no webhook); production's live key and webhook are made when orders are switched on |
 | Tailnet | Tailscale, tailnet `tail8bc7ae.ts.net`: home-server, the VPS (`pmp-prod`, tagged) and Attila's devices | Live; VPS joined 28 Oct 2026 (SCRUM-71) |
-| Claude Code | On the Mac Studio, project folder `~/Projects/picklemypaddle`; reaches home-server as `pmp-claude` through `pmp-staging` only ([runbook](../runbooks/claude-code-mac.md)) | Added by SCRUM-92 (4 Nov 2026); on once Attila runs `install.sh --claude-access` |
+| Claude Code | On the Mac Studio, project folder `~/Projects/picklemypaddle`; reaches home-server as `pmp-claude` through `pmp-staging` only, **over the tailnet** (works only while Tailscale is up on the Mac; [runbook](../runbooks/claude-code-mac.md)) | Added by SCRUM-92 (4 Nov 2026); access on since 5 Nov 2026 |
 | Order admin | Tailnet only: staging `https://home-server.tail8bc7ae.ts.net:8445/admin`, production `https://pmp-prod.tail8bc7ae.ts.net/admin` | Added by SCRUM-71/72; production answers 503 until orders are on |
 
 ## OVH
@@ -134,10 +134,11 @@ The VPS uses the same loopback port for its admin listener (127.0.0.1:8100) for 
 
 ## Email
 
-- **Receiving:** Cloudflare Email Routing. Three addresses forward to the business Gmail mailbox
-  (all tested 20 Oct); catch-all is off. `sales@picklemypaddle.com` takes every sales enquiry and
+- **Receiving:** Cloudflare Email Routing. Four addresses forward to the business Gmail mailbox
+  (the first three tested 20 Oct); catch-all is off. `sales@picklemypaddle.com` takes every sales enquiry and
   order from the website; `info@` is for ordinary dialogue with customers once an order is taken;
-  `attila@` is the personal address, for clubs. Not iCloud (personal-use terms, tied to a personal Apple
+  `attila@` is the personal address, for clubs; the fourth is an alias for the GitHub machine account
+  (SCRUM-92), not for customers; its login is in Apple Passwords. Not iCloud (personal-use terms, tied to a personal Apple
   Account).
 - **Sending:** Resend, for the automatic order emails, which come **From `sales@picklemypaddle.com`**
   with Reply-To `info@`. The domain is verified on the sending subdomain `send.picklemypaddle.com`,
@@ -214,9 +215,10 @@ sit in the `orders` profile, and the gateway answers `/api/*` with 503 while `PM
 - **Rulesets** on every repo require a PR and passing checks (no approvals). Within a batch Attila
   approved, Claude merges (SCRUM-92). A tag ruleset (`.github/rulesets/release-tags.json`, imported
   on each repo) lets only admins, that is Attila, create, move or delete `v*` tags.
-- **Claude's GitHub identity (SCRUM-92):** a machine account (`thehunfromoz-claude`, planned) with
-  **Write** on the four repos only, signed in with `gh` on the Mac. Its login and 2FA recovery codes
-  are kept like the others.
+- **Claude's GitHub identity (SCRUM-92):** the machine account `thehunfromoz-claude` (live since
+  5 Nov 2026; signed up with an Email Routing alias to the business Gmail, login in Apple Passwords) with **Write** on the four repos only, 2FA on, signed in
+  with `gh` on the Mac. Its login and 2FA recovery codes are kept like the others. The tag ruleset was
+  imported on all four repos on 5 Nov 2026.
   Required check names are listed in `docs/working-with-claude.md` (renaming a CI job changes its
   check name, so rulesets need updating).
 - **Images:** merge to `main` publishes `ghcr.io/thehunfromoz/<repo>:staging` and `:<commit>`; a
@@ -267,7 +269,7 @@ Names only; never the values.
 | Tailscale node keys | Inside `tailscaled`'s state on each machine (root) | Nothing to copy or rotate by hand; the VPS's key doesn't expire (tagged) |
 | Order database password, production | `/etc/picklemypaddle/postgres.env` on the VPS (root, 600) | Not created yet; made when orders are switched on |
 | VPS SSH key | Private key on Attila's Mac only; passphrase in Apple Passwords | Public half is in the VPS's `authorized_keys` |
-| Claude Code's home-server key | `~/.ssh/pmp-claude` on the Mac (no passphrase) | Public half in `pmp-claude`'s `authorized_keys` on home-server, forced to `pmp-staging` and limited to the Mac's address (SCRUM-92). Revoke: `install.sh --claude-access-off` |
+| Claude Code's home-server key | `~/.ssh/pmp-claude` on the Mac (no passphrase) | Public half in `pmp-claude`'s `authorized_keys` on home-server, forced to `pmp-staging` and limited to the Mac's tailnet address (SCRUM-92; the Mac's `~/.ssh/config` host `pmp-staging` uses `home-server.tail8bc7ae.ts.net`). Revoke: `install.sh --claude-access-off` |
 | Claude's GitHub login | `gh` on the Mac (macOS Keychain) | The machine account's; revoke by removing it as a collaborator. If a fine-grained token is used instead, it expires after 90 days: calendar it |
 | 2FA recovery codes (OVH, Cloudflare, Resend, GitHub, Jira) | Attila's iCloud Notes, one note per service | 2FA codes themselves: Google Authenticator, synced to a Google account |
 | Account logins (OVH, Cloudflare, Google, GitHub, Atlassian, HubSpot, Stripe, Resend) | Apple Passwords (iCloud Keychain) | Only Attila can open it |
