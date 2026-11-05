@@ -19,7 +19,7 @@ not be inside that mount.
 account per person). It is a collaborator with **Write** on the four repos only:
 
 1. Sign out of GitHub (or use a private window), sign up with a new address (an Email Routing
-   alias, `claude@picklemypaddle.com`, forwarding to the business Gmail; this is the one in use), turn on 2FA,
+   alias on picklemypaddle.com forwarding to the business Gmail; the one in use is in Apple Passwords), turn on 2FA,
    and keep its login and recovery codes the same way as the others (Apple Passwords, iCloud Notes).
 2. As `thehunfromoz`, on each repo: Settings → Collaborators → Add people → the machine account →
    **Write**. Accept the four invitations as the machine account, in a **private browser window**
@@ -80,9 +80,9 @@ is the `v2` one above (checked 5 Nov 2026; the old `v1` address is retired).
 ### 4. The SSH key for home-server
 
 Claude reaches home-server **over the tailnet**, not the LAN: Tailscale must be signed in on the Mac
-(the same tailnet as home-server). MagicDNS makes even a plain `ssh home-server` from the Mac go over
-the tailnet, so the Mac's connections arrive from its tailnet address (a `100.x` one), and that is
-the address the key is locked to. Get it with `tailscale ip -4` on the Mac (or in the Tailscale
+(the same tailnet as home-server). MagicDNS puts even a plain `ssh home-server` from the Mac on
+the tailnet: observed 5 Nov 2026, it arrived on home-server (`SSH_CLIENT`) from the Mac's tailnet
+address (a `100.x` one), and that is the address the key is locked to. Get it with `tailscale ip -4` on the Mac (or in the Tailscale
 menu); call it *the Mac's tailnet address* below. It doesn't change, so no DHCP reservation is needed.
 
 ```bash

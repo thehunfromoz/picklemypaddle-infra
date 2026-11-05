@@ -554,8 +554,8 @@ journalctl _COMM=sudo --since today | grep pmp-claude
 **It comes in over the tailnet, not the LAN.** On the Mac, `~/.ssh/config` has `Host pmp-staging` with
 `HostName home-server.tail8bc7ae.ts.net`, and the key is locked to the Mac's **tailnet address**
 (`tailscale ip -4` on the Mac). That address doesn't change, so no DHCP reservation is needed. MagicDNS
-makes even a plain `ssh home-server` from the Mac go over the tailnet, so the Mac's tailnet address is
-the right one to give (the installer may suggest it, but `sudo` often hides the session's address, so
+puts even a plain `ssh home-server` from the Mac on the tailnet (observed 5 Nov 2026: `SSH_CLIENT` on
+home-server showed the Mac's tailnet address), so that is the right address to give (the installer may suggest it, but `sudo` often hides the session's address, so
 expect to type it). Access therefore works **only while Tailscale is up on the Mac**.
 
 **Turn it on (once):** on the Mac, make the key (runbook `claude-code-mac.md`), copy the public key to

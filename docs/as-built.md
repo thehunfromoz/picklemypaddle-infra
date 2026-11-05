@@ -137,8 +137,8 @@ The VPS uses the same loopback port for its admin listener (127.0.0.1:8100) for 
 - **Receiving:** Cloudflare Email Routing. Four addresses forward to the business Gmail mailbox
   (the first three tested 20 Oct); catch-all is off. `sales@picklemypaddle.com` takes every sales enquiry and
   order from the website; `info@` is for ordinary dialogue with customers once an order is taken;
-  `attila@` is the personal address, for clubs; `claude@` is the sign-up address of the GitHub machine
-  account (SCRUM-92), not for customers. Not iCloud (personal-use terms, tied to a personal Apple
+  `attila@` is the personal address, for clubs; the fourth is an alias for the GitHub machine account
+  (SCRUM-92), not for customers; its login is in Apple Passwords. Not iCloud (personal-use terms, tied to a personal Apple
   Account).
 - **Sending:** Resend, for the automatic order emails, which come **From `sales@picklemypaddle.com`**
   with Reply-To `info@`. The domain is verified on the sending subdomain `send.picklemypaddle.com`,
@@ -216,7 +216,7 @@ sit in the `orders` profile, and the gateway answers `/api/*` with 503 while `PM
   approved, Claude merges (SCRUM-92). A tag ruleset (`.github/rulesets/release-tags.json`, imported
   on each repo) lets only admins, that is Attila, create, move or delete `v*` tags.
 - **Claude's GitHub identity (SCRUM-92):** the machine account `thehunfromoz-claude` (live since
-  5 Nov 2026; email `claude@picklemypaddle.com`) with **Write** on the four repos only, 2FA on, signed in
+  5 Nov 2026; signed up with an Email Routing alias to the business Gmail, login in Apple Passwords) with **Write** on the four repos only, 2FA on, signed in
   with `gh` on the Mac. Its login and 2FA recovery codes are kept like the others. The tag ruleset was
   imported on all four repos on 5 Nov 2026.
   Required check names are listed in `docs/working-with-claude.md` (renaming a CI job changes its
