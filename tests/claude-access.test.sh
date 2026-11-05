@@ -234,6 +234,9 @@ echo "Part 2: claude-access.sh on the CI runner (real user, sudo and journal)"
 U=pmp-claude
 id "$U" >/dev/null 2>&1 && die "11. the runner already has a $U user"
 ssh-keygen -q -t ed25519 -N '' -C "ci@test" -f "$WORK/key"
+# SCRUM-100: a refused address creates no user at all
+sudo "$ROOT/staging/claude-access.sh" on "$WORK/key.pub" '10.*' >"$WORK/out" 2>&1 && die "21. 'on' must refuse from=10.* on a fresh system"
+id "$U" >/dev/null 2>&1 && die "21. a refused address must not create the $U user"
 sudo "$ROOT/staging/claude-access.sh" on "$WORK/key.pub" 192.0.2.10 >"$WORK/out" 2>&1 || die "11. on failed"
 home="$(getent passwd "$U" | cut -d: -f6)"
 line="$(sudo cat "$home/.ssh/authorized_keys")"
@@ -271,12 +274,14 @@ sudo grep -q 'from="198.51.100.20"' "$(getent passwd "$U" | cut -d: -f6)/.ssh/au
 pass "18. interactive on under sudo: asks for the address, refuses an empty answer"
 # SCRUM-100: "on" itself refuses anything but one address, and leaves the key line as it was
 before="$(sudo cat "$home/.ssh/authorized_keys")"
-for a in '*' '198.51.100.20,203.0.113.7' '198.51.100.0/24'; do
+for a in '10.*' '198.51.100.20,203.0.113.7' '198.51.100.0/24'; do
   sudo "$ROOT/staging/claude-access.sh" on "$WORK/key.pub" "$a" >"$WORK/out" 2>&1 && die "21. 'on' must refuse from=$a"
+  grep -q 'one IPv4 or IPv6 address' "$WORK/out" || die "21. 'on' should refuse from=$a because of the address"
 done
-printf '%s\n*\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u SSH_CONNECTION "$ROOT/staging/claude-access.sh" on >"$WORK/out" 2>&1 && die "21. the prompt must refuse *"
+printf '%s\n10.*\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u SSH_CONNECTION "$ROOT/staging/claude-access.sh" on >"$WORK/out" 2>&1 && die "21. the prompt must refuse 10.*"
+grep -q 'one IPv4 or IPv6 address' "$WORK/out" || die "21. the prompt should refuse 10.* because of the address"
 [[ "$(sudo cat "$home/.ssh/authorized_keys")" == "$before" ]] || die "21. a refused address must leave authorized_keys unchanged"
-pass "21. on: refuses *, lists and ranges, as an argument or at the prompt, and changes nothing"
+pass "21. on: refuses patterns, lists and ranges, as an argument or at the prompt, creates no user and changes nothing"
 sudo "$ROOT/staging/claude-access.sh" off >"$WORK/out" 2>&1 || die "13. off failed"
 id "$U" >/dev/null 2>&1 && die "13. off should remove the user"
 for f in /etc/sudoers.d/pmp-claude /usr/local/sbin/pmp-staging /usr/local/bin/pmp-staging-ssh "$home"; do
