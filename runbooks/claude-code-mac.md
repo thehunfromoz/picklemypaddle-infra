@@ -42,15 +42,22 @@ them as comments when you type interactively, and `gh` received them as argument
 mkdir -p ~/Projects/picklemypaddle && cd ~/Projects/picklemypaddle
 for r in site integrations agents infra; do git clone https://github.com/thehunfromoz/picklemypaddle-$r; done
 ln -s picklemypaddle-infra/workspace/CLAUDE.md CLAUDE.md
-ln -s picklemypaddle-infra/workspace/.claude .claude
+mkdir .claude
+ln -s ../picklemypaddle-infra/workspace/.claude/settings.json .claude/settings.json
 curl -fsSL https://claude.ai/install.sh | bash
 brew install gh
 gh auth login
 gh auth setup-git
 ```
 
-What they do: the two `ln -s` lines link the workspace guide and the project permissions from the infra
-repo; the installer is Claude Code's native one (macOS 13+); `brew install gh` is needed only if
+What they do: the `ln -s` lines link the workspace guide and the project settings (permissions and
+model) from the infra repo. `.claude` is a **real folder** holding only that one link, so Claude Code can
+write its own files there: `settings.local.json` (what "Yes, don't ask again" saves) and plugin files.
+(Until 5 Nov 2026 the whole folder was a link, which made "don't ask again" and project-scope plugin
+installs fail. On a Mac set up that way: `cd ~/Projects/picklemypaddle && rm .claude && mkdir .claude &&
+ln -s ../picklemypaddle-infra/workspace/.claude/settings.json .claude/settings.json`. `rm .claude` removes
+only the link.)
+ the installer is Claude Code's native one (macOS 13+); `brew install gh` is needed only if
 `gh --version` says it's missing; `gh auth setup-git` makes git use the same login.
 
 - **`gh auth login`:** choose GitHub.com → HTTPS → browser. It shows a one-time code and opens
@@ -178,10 +185,77 @@ OK moves it to Done. It stays named **QA**
 - Start Claude Code in `~/Projects/picklemypaddle`. The workspace `CLAUDE.md` loads
   `docs/working-with-claude.md` and `docs/qa-gates.md`; each repo's own `CLAUDE.md` adds its commands.
 - The workspace `.claude/settings.json` (kept in infra under `workspace/`, so changes go by PR) sets
-  what Claude may do without asking (tests, builds, story-branch pushes, `gh` PR work, Docker,
-  `ssh pmp-staging …`) and what it may never do (push to `main`, tags and releases, repo settings,
-  secrets, `sudo`, reading `.env` files or `~/.ssh`). Anything not listed asks you first.
+  what Claude may do without asking and what it may never do. Anything not listed asks you first.
+  See "Permissions" below.
+- **The live permissions are whatever the infra clone has checked out.** `.claude/settings.json` is a link
+  into `picklemypaddle-infra/workspace/`, so a branch checked out there is the permission set Claude runs
+  under, before anyone has reviewed it. Permission changes are therefore made in a separate worktree
+  (`git worktree add`), and take effect only when you merge the PR and the clone is back on an updated `main`.
+- "Yes, don't ask again" saves to `.claude/settings.local.json` (this Mac only, not in git). Look at it now
+  and then (`cat ~/Projects/picklemypaddle/.claude/settings.local.json`) and move anything lasting into
+  `settings.json` by PR.
+- **Models:** `settings.json` sets `"model": "opusplan"`: Opus in plan mode, Sonnet when building. See
+  [working-with-claude.md](../docs/working-with-claude.md#models).
+- **Merging:** auto mode's classifier blocks `gh pr merge`, so you merge by hand until that changes; Claude
+  says when a PR is ready.
 - Leave it in its normal permission mode; don't start it with `--dangerously-skip-permissions`.
+
+### Permissions: what is allowed without asking
+
+Worked out on 5 Nov 2026 from the day's sessions (about 270 tool calls, 19 transcripts; the transcripts
+record what ran, not which prompts you saw, so "would have asked" means "not covered by the list then").
+
+| Group | Allowed without asking | Why |
+| --- | --- | --- |
+| Read-only shell | `ls`, `cat`, `head`, `tail`, `grep`, `sed -n`, `cut`, `wc`, `sort`, `uniq`, `diff`, `date`, `which`, `ps`, `lsof`, `sleep`, `mkdir` | They only look (`sed -n` only prints). |
+| git, read-only | `git status/log/diff/show/fetch/branch/rev-parse` also in the form `git -C <dir> …`; `git grep`, `ls-tree`, `reflog`, `remote -v`, `worktree list`, `stash list`, `config --get` | Looking at other clones and branches. |
+| git, local-only writes | `git merge`, `git stash push/pop`, `git worktree add` | Change only the local clone; pushing stays limited to `scrum-*` branches. |
+| git push | `git push -q [-u] origin scrum-*` (the `-q` forms) | Same branches as before. |
+| gh | `gh api rate_limit` | Read-only. |
+| pnpm | `pnpm -C <dir>` and `pnpm --filter <pkg>` with install, run, test, exec, check, lint, build, typecheck | The verbs already allowed, from another folder. |
+| Other | `python3 -m json.tool`, `bash ci/container-test.sh`, `npm view`, `curl` to `localhost` | Named in the docs or read-only. |
+| Atlassian (both servers) | read tools; add or edit a comment; move a status; create an issue link | [working-with-claude.md](../docs/working-with-claude.md) gives Claude these (Jira statuses, blocked-by links, test reports). |
+
+**Added to the deny list:** `Bash(*/.ssh*)`. Allowing `cat` and `grep` would otherwise let the shell read
+`~/.ssh`, which `Read(~/.ssh/**)` doesn't cover.
+
+**Left out on purpose** (still asks, or stays denied):
+`python3 -` (and other heredoc-fed interpreters) and `awk`, `find`, `xargs`: they run arbitrary code or
+commands; Claude edits files with its Edit tool instead. `rm`, `cp`, `chmod`, `kill`: they destroy or
+overwrite. `git reset`, `git clean`, `git stash drop`: they discard work (`git reset --hard` was blocked
+by auto mode on 5 Nov 2026; adding it to the deny list is worth considering). A bare `git push` (it pushes
+whatever the current branch tracks, which on `main` is `main`). `gh api -X …` and `gh pr merge` stay as
+before (the latter is blocked in auto mode anyway). `brew install`, `ssh-keygen`, `gh auth`, `sudo`.
+Atlassian: creating or editing issues and any Confluence write (refinement work you should see), plus
+`executeWrite` and `executeDestructive`. The other connectors (Supabase, Postman, Figma, Google Drive,
+Swagger) aren't used in this project.
+
+Not yet enforced: Claude can edit `workspace/.claude/settings.json` itself (edits inside the project folder
+are allowed). The safeguard is process, the worktree rule above and your review of the PR. To make it
+enforced, deny `Edit` on that file and make permission PRs yourself.
+
+### Sandbox (evaluated 5 Nov 2026)
+
+Claude Code's macOS sandbox (Seatbelt, `/sandbox`) is off by default and has not been run live yet. From its
+documentation and this Mac:
+
+- Seatbelt is available here (`sandbox-exec` exists). Docker's socket sits under `~/.docker/run`.
+- `docker`, `gh` (Go CLIs fail TLS inside it), plain `ssh` and git over SSH don't work inside it and must
+  be listed in `sandbox.excludedCommands`. Our remotes are HTTPS, so git works if `github.com` is allowed.
+  Excluded commands run with full access, so the riskiest commands here (`docker`, `gh`, `ssh
+  pmp-staging`) would be unsandboxed anyway. `ssh pmp-staging` is already boxed in by its forced command.
+- It needs an allowed-domains list (npm registry, Playwright's download host, GitHub) and
+  `allowLocalBinding` for the dev server and Playwright. A script that calls `docker` inside a `make` target
+  stays sandboxed, because exclusion matches the command text.
+- What it adds: shell commands (python, pnpm, rm, cp, sed -i) are confined to the project folder, and
+  sandboxed commands run without prompts, which would replace much of the allow list above.
+
+**Recommendation: for it, as a one-week trial, not yet in `settings.json`.** The confinement of file and
+network access is real value next to the permission list, and it would cut prompts. But Chromium under
+Playwright, pnpm installs and `git push` over HTTPS are unproven under it on this Mac, and a wrong exclusion
+list is silently unsandboxed. Trial: `/sandbox` with `excludedCommands` `docker *`, `gh *`, `ssh pmp-staging *`;
+then check `pnpm install`, `pnpm test:e2e` (Chromium), `git push` of a scrum branch, `docker version`,
+`ssh pmp-staging status` and `gh pr list`; commit the settings only when all six work.
 
 ## Kill switch
 

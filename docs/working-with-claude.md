@@ -9,7 +9,7 @@ file short and current; update it in the same PR as any change to how we work.
 **Where Claude works (SCRUM-92, from 4 Nov 2026):** mainly **Claude Code on Attila's Mac Studio**, in
 `~/Projects/picklemypaddle` ([runbooks/claude-code-mac.md](../runbooks/claude-code-mac.md)). There it
 has Docker, reaches home-server through `ssh pmp-staging …` only (over the tailnet, so only while
-Tailscale is up on the Mac), and merges approved work. Cloud
+Tailscale is up on the Mac); Attila merges its PRs by hand for now (see Merging). Cloud
 sessions (claude.ai/code) still work for Jira, research and docs, with the limits listed under
 "Cloud sessions" below.
 
@@ -97,8 +97,11 @@ UAT → next batch.**
   - Anything that must be finished before go-live "blocks" SCRUM-11.
 - **Before marking anything Blocked or Done, verify it** (CI results, commit statuses,
   `version.txt`). Don't assume.
-- **Merging (from 4 Nov 2026):** within an approved batch, **Claude merges its own PRs** (squash)
-  when: the required checks are green and the new tests actually ran; the **pr-review-toolkit**
+- **Merging (from 4 Nov 2026; Attila merges by hand from 5 Nov 2026):** Claude Code's auto mode
+  classifier blocks `gh pr merge`, and Claude doesn't try to get round it, so **Attila merges every PR by
+  hand until that changes**. Claude does everything up to the merge and says "ready"; it then watches
+  staging. The rule below says when a PR is ready, and applies as written again if the block is lifted:
+  within an approved batch, **Claude merges its own PRs** (squash) when: the required checks are green and the new tests actually ran; the **pr-review-toolkit**
   review (agents that didn't write the code) has checked the diff against the acceptance criteria and
   its findings are fixed or answered on the PR; and the branch is current with `main`. After merging,
   Claude watches `staging/home-server` and fixes forward or reverts (by PR, same rules) if it goes
@@ -106,6 +109,10 @@ UAT → next batch.**
   **Attila merges** a PR that widens Claude's own access (this guide's merge rule, `pmp-staging`,
   `claude-access.sh`, the rulesets) unless the batch says otherwise. Rulesets enforce PRs and passing
   checks on all repos; **`v*` tags (releases) are Attila's** (tag ruleset, SCRUM-92).
+- **Stacked PRs** (a PR whose base is another PR's branch): after the base is squash-merged, retarget the
+  next PR to `main` (`gh pr edit <n> --base main`); it then conflicts with the squash. Merge `origin/main`
+  into its branch keeping the branch side (`git merge -X ours origin/main`), check
+  `git diff origin/main..HEAD` holds only that PR's own change, and push. Don't rebase.
 - **Branches:** `scrum-<n>-<short-name>`. Squash noisy work into clean commits before review.
   The session's clones are **shallow**: don't `commit --amend` or squash with
   `reset --soft` onto a shallow boundary (it once produced a parentless commit and an
@@ -136,6 +143,17 @@ UAT → next batch.**
   `EMAIL_ALLOWLIST`, 29 Oct).
 - **The stop hook may say a branch is unpushed** when it's pushed but its tracking ref wasn't
   fetched: `git fetch origin <branch>` clears it.
+
+## Models
+
+Set by `"model": "opusplan"` in the workspace `settings.json` (Opus in plan mode, Sonnet otherwise).
+
+- **Plan mode, on Opus:** refinement, quizzing Attila, architecture decisions and the batch summaries.
+  Nothing is built in plan mode.
+- **Building, on Sonnet:** after Attila approves the batch, Claude leaves plan mode and builds.
+- **Subagents** (the pr-review-toolkit reviewers and others) inherit the session's model. Don't set
+  `CLAUDE_CODE_SUBAGENT_MODEL`: it would force one model on every subagent whatever the phase.
+- `/model` changes it for the session if Attila wants a different one.
 
 ## Cloud sessions: what they can't do (GitHub proxy limits)
 
