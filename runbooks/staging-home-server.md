@@ -554,8 +554,9 @@ journalctl _COMM=sudo --since today | grep pmp-claude
 **It comes in over the tailnet, not the LAN.** On the Mac, `~/.ssh/config` has `Host pmp-staging` with
 `HostName home-server.tail8bc7ae.ts.net`, and the key is locked to the Mac's **tailnet address**
 (`tailscale ip -4` on the Mac). That address doesn't change, so no DHCP reservation is needed. MagicDNS
-makes even a plain `ssh home-server` from the Mac go over the tailnet, so the address the installer
-suggests is the tailnet one. Access therefore works **only while Tailscale is up on the Mac**.
+makes even a plain `ssh home-server` from the Mac go over the tailnet, so the Mac's tailnet address is
+the right one to give (the installer may suggest it, but `sudo` often hides the session's address, so
+expect to type it). Access therefore works **only while Tailscale is up on the Mac**.
 
 **Turn it on (once):** on the Mac, make the key (runbook `claude-code-mac.md`), copy the public key to
 home-server, then on home-server:
@@ -566,8 +567,8 @@ sudo ./staging/install.sh --claude-access /tmp/pmp-claude.pub <the Mac's tailnet
 ```
 
 Without the two arguments it asks for the pasted key and the address instead. It suggests an address
-only when it can read the session's own (`sudo` hides it from the script, so it also tries the login
-record), and it won't go on without one.
+only when it can find one (`sudo` hides the session's own; it then tries the login record, then your
+logins if they all come from one address), and it won't go on without one.
 
 Then from the Mac: `ssh pmp-staging status`. A plain `install.sh` keeps `pmp-staging`
 current while access is on. If `sshd` has an `AllowUsers` list, it says so: add `pmp-claude` to it.

@@ -27,13 +27,19 @@ fail() { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 # The address the Mac connects from, for "on" to suggest. sudo strips SSH_CLIENT (and, under
 # `set -u`, using it unguarded killed the script), so fall back to SSH_CONNECTION and then to the
-# session's own utmp entry. Prints nothing unless it looks like an IP address: a host name or a
+# session's own utmp entry, then to the sudo user's logins. Prints nothing unless it looks like an IP address: a host name or a
 # display such as :0 is no use in an authorized_keys from= pattern we'd want to trust.
 default_from() {
   local a="${SSH_CLIENT:-}"
   a="${a%% *}"
   if [[ -z "$a" ]]; then a="${SSH_CONNECTION:-}"; a="${a%% *}"; fi
   if [[ -z "$a" ]]; then a="$(who -m 2>/dev/null | sed -n 's/.*(\([^()]*\))[[:space:]]*$/\1/p' | head -n1)"; fi
+  # sudo-rs runs us on a fresh terminal with no login record, so `who -m` can be empty: then use
+  # the login(s) of the user who ran sudo, but only if they all come from one address.
+  if [[ -z "$a" && -n "${SUDO_USER:-}" ]]; then
+    a="$(who 2>/dev/null | awk -v u="$SUDO_USER" '$1 == u' | sed -n 's/.*(\([^()]*\))[[:space:]]*$/\1/p' | sort -u)"
+    [[ "$a" != *$'\n'* ]] || a=""
+  fi
   if [[ "$a" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$a" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:.]+$ && "$a" != :* ]]; then printf '%s\n' "$a"; fi
 }
 if [[ "${1:-}" == default-from ]]; then default_from; exit 0; fi

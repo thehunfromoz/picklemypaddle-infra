@@ -182,7 +182,14 @@ pass "14. SSH_CLIENT unset is safe; set, it is used"
 df "attila pts/0 2026-11-05 10:00 (203.0.113.7)"; [[ "$(cat "$WORK/out")" == "203.0.113.7" ]] || die "15. should fall back to the session's address from who -m"
 df "attila pts/0 2026-11-05 10:00 (fd7a:115c:a1e0::1)"; [[ "$(cat "$WORK/out")" == "fd7a:115c:a1e0::1" ]] || die "15. IPv6 from who -m"
 df "" SSH_CONNECTION="203.0.113.8 50000 192.0.2.1 22"; [[ "$(cat "$WORK/out")" == "203.0.113.8" ]] || die "15. SSH_CONNECTION is the next fallback"
-pass "15. falls back to SSH_CONNECTION, then the session address from who -m"
+# sudo-rs gives us a new terminal, so who -m is empty: use the sudo user's logins, if all from one address
+printf '#!/usr/bin/env bash\n[[ "$1" == -m ]] && exit 0\nprintf "%%s\\n" "$WHO_ALL"\n' >"$BIN/who"; chmod +x "$BIN/who"
+sudo_df() { rc=0; env -u SSH_CLIENT -u SSH_CONNECTION SUDO_USER=attila WHO_ALL="$1" PATH="$BIN:$PATH" "$ROOT/staging/claude-access.sh" default-from >"$WORK/out" 2>&1 || rc=$?; }
+sudo_df $'attila pts/0 2026-11-05 10:00 (203.0.113.7)\nroot tty1 2026-11-05 09:00\nother pts/1 2026-11-05 09:30 (192.0.2.99)'
+[[ "$(cat "$WORK/out")" == "203.0.113.7" ]] || die "15. should use the sudo user's login when who -m is empty (got: $(cat "$WORK/out"))"
+sudo_df $'attila pts/0 2026-11-05 10:00 (203.0.113.7)\nattila pts/1 2026-11-05 10:05 (203.0.113.8)'
+[[ ! -s "$WORK/out" ]] || die "15. two different addresses for the sudo user: suggest nothing, don't guess"
+pass "15. falls back to SSH_CONNECTION, then who -m, then the sudo user's logins (if all one address)"
 
 df "attila pts/0 2026-11-05 10:00 (home-mac.local)"; [[ ! -s "$WORK/out" ]] || die "16. a host name from who -m is not an address: suggest nothing"
 df "attila :0 2026-11-05 10:00 (:0)"; [[ ! -s "$WORK/out" ]] || die "16. a display like :0 is not an address: suggest nothing"
