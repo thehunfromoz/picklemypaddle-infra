@@ -52,7 +52,7 @@ Where they run:
 | Privacy (no street address or photos in HubSpot; status page minimal) | integrations `crm`, `status`, `logs` (no personal data in logs) | CI | |
 | Abuse limits | integrations `abuse` (honeypot, timing, per-IP and per-email limits) | CI | |
 | Placeholders never shown | `check:placeholders` (blocks releases); production refuses `[To confirm: …]` templates | release, production start | |
-| Claude Code's access to home-server | infra `tests/claude-access.test.sh` (incl. the address `on` offers when `sudo` hides `SSH_CLIENT`, and `install.sh --claude-access <key-file> <address>`) | infra CI `lint` | Part 2 (real user and sudo, interactive `on`) runs only in CI; access over the tailnet is checked by hand with `ssh pmp-staging status` |
+| Claude Code's access to home-server | infra `tests/claude-access.test.sh` (incl. the address `on` offers when `sudo` hides `SSH_CLIENT`, and `install.sh --claude-access <key-file> <address>`; the key's `from=` is exactly one IPv4/IPv6 address, SCRUM-100) | infra CI `lint` | Part 2 (real user and sudo, interactive `on`) runs only in CI; access over the tailnet is checked by hand with `ssh pmp-staging status` |
 
 ## How a story uses this
 

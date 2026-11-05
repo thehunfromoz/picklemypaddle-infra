@@ -21,12 +21,16 @@
 #      SSH_CONNECTION and who -m, suggests nothing it can't read as an address; install.sh
 #      --claude-access passes <key-file> <address> through
 #
+#  19-20. (SCRUM-100) check-from: exactly one IPv4 or IPv6 address is accepted; *, lists, ranges,
+#      patterns, names and malformed addresses are refused
+#
 # Part 2 (CI only, needs passwordless sudo): claude-access.sh on/off on the real system.
 #  11. on: user with a locked password, in no privileged group; key forced to the command,
 #      from one address; sudo rule validates, is 0440 and allows pmp-staging only
 #  12. as pmp-claude: pmp-staging help works through sudo; any other sudo command is refused;
 #      a refused pmp-staging command is in the journal
 #  13. refresh keeps it current; off removes the user, key, sudo rule and both commands
+#  21. (SCRUM-100) on refuses *, lists and ranges, as an argument or at the prompt
 # shellcheck disable=SC2015,SC2016,SC2024 # A && B || die is intended; literal $( ) is the point; sudo output goes to our own files
 set -euo pipefail
 
@@ -205,6 +209,22 @@ called "claude-access.sh on" && ! grep -q 'on .' "$CALLS" || die "17. install.sh
 [[ $rc -eq 2 ]] && ! called "claude-access.sh" || die "17. a key file without an address should be a usage error"
 pass "17. install.sh --claude-access passes <key-file> <address> through"
 
+# ---- the key's from= is exactly one IP address (SCRUM-100) ----------------------------------------
+# `claude-access.sh check-from <address>` exits 0 for a single IPv4 or IPv6 address and 1 for
+# anything else; "on" uses the same check before writing the key line. No root needed.
+from_ok() { "$ROOT/staging/claude-access.sh" check-from "$1" >"$WORK/out" 2>&1; }
+for a in 100.64.0.9 203.0.113.7 0.0.0.0 255.255.255.255 fd7a:115c:a1e0::1 2001:db8::1 ::1 1:2:3:4:5:6:7:8; do
+  from_ok "$a" || die "19. a single address should be accepted: $a"
+done
+pass "19. a single IPv4 or IPv6 address is accepted"
+
+for a in '*' '***' '10.*' '*.*.*.*' '203.0.113.7,198.51.100.4' '203.0.113.7 198.51.100.4' '10.0.0.0/8' 'fd7a::/48' '203.0.113.*' '!203.0.113.7' \
+  '1.2.3' '1.2.3.4.5' '256.1.1.1' '203.0.113.07' 'home-mac.local' '203.0.113.7"' '' 'fd7a::1::2' ':::' '1:2:3:4:5:6:7:8:9' \
+  ':1:2:3:4:5:6:7' '1:2:3:4:5:6:7:' 'fd7a::12345' 'fe80::1%eth0'; do
+  from_ok "$a" && die "20. should be refused: '$a'"
+done
+pass "20. *, lists, ranges, patterns, names and malformed addresses are refused"
+
 # ---- part 2 ----------------------------------------------------------------------------------
 if [[ -z "${GITHUB_ACTIONS:-}" ]] || ! sudo -n true 2>/dev/null; then
   echo "Part 2 skipped (runs in CI, where sudo needs no password)"
@@ -249,6 +269,14 @@ printf '%s\n198.51.100.20\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u S
   die "18. 'on' should accept a typed address when SSH_CLIENT is unset"
 sudo grep -q 'from="198.51.100.20"' "$(getent passwd "$U" | cut -d: -f6)/.ssh/authorized_keys" || die "18. the typed address should be in the key line"
 pass "18. interactive on under sudo: asks for the address, refuses an empty answer"
+# SCRUM-100: "on" itself refuses anything but one address, and leaves the key line as it was
+before="$(sudo cat "$home/.ssh/authorized_keys")"
+for a in '*' '198.51.100.20,203.0.113.7' '198.51.100.0/24'; do
+  sudo "$ROOT/staging/claude-access.sh" on "$WORK/key.pub" "$a" >"$WORK/out" 2>&1 && die "21. 'on' must refuse from=$a"
+done
+printf '%s\n*\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u SSH_CONNECTION "$ROOT/staging/claude-access.sh" on >"$WORK/out" 2>&1 && die "21. the prompt must refuse *"
+[[ "$(sudo cat "$home/.ssh/authorized_keys")" == "$before" ]] || die "21. a refused address must leave authorized_keys unchanged"
+pass "21. on: refuses *, lists and ranges, as an argument or at the prompt, and changes nothing"
 sudo "$ROOT/staging/claude-access.sh" off >"$WORK/out" 2>&1 || die "13. off failed"
 id "$U" >/dev/null 2>&1 && die "13. off should remove the user"
 for f in /etc/sudoers.d/pmp-claude /usr/local/sbin/pmp-staging /usr/local/bin/pmp-staging-ssh "$home"; do

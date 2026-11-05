@@ -9,6 +9,7 @@
 #
 # Direct use (tests, scripts): claude-access.sh on <public-key-file> <from-pattern> | off | refresh
 #   claude-access.sh default-from   prints the address "on" would suggest (no root needed)
+#   claude-access.sh check-from <address>   exit 0 if it is exactly one IPv4/IPv6 address (no root needed)
 #
 # What "on" means: a user `pmp-claude` with no password and no docker group, whose only SSH key
 # is forced to /usr/local/bin/pmp-staging-ssh, from one address; and one sudo rule letting it run
@@ -42,7 +43,28 @@ default_from() {
   fi
   if [[ "$a" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$a" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:.]+$ && "$a" != :* ]]; then printf '%s\n' "$a"; fi
 }
+
+# Exactly one IPv4 or IPv6 address, nothing else: this goes inside from="..." in authorized_keys,
+# where a *, a comma list or a range would let the key in from more than the Mac (SCRUM-100).
+valid_from() {
+  local a="$1" o="(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])" g n=0
+  [[ "$a" =~ ^$o(\.$o){3}$ ]] && return 0
+  [[ "$a" =~ ^[0-9a-fA-F:]{2,39}$ && "$a" != *:::* ]] || return 1
+  [[ "$a" != :[!:]* && "$a" != *[!:]: ]] || return 1
+  local -a parts; IFS=: read -ra parts <<<"$a"
+  for g in "${parts[@]}"; do
+    [[ -z "$g" ]] && continue
+    [[ "$g" =~ ^[0-9a-fA-F]{1,4}$ ]] || return 1
+    n=$((n + 1))
+  done
+  if [[ "$a" == *::* ]]; then
+    [[ "${a#*::}" != *::* && $n -le 7 ]]
+  else
+    [[ $n -eq 8 ]]
+  fi
+}
 if [[ "${1:-}" == default-from ]]; then default_from; exit 0; fi
+if [[ "${1:-}" == check-from ]]; then valid_from "${2:-}"; exit $?; fi
 
 [[ $EUID -eq 0 ]] || fail "run with sudo"
 
@@ -76,7 +98,7 @@ case "${1:-}" in
     fi
     [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]{60,}(\ [A-Za-z0-9._@-]{1,64})?$ ]] ||
       fail "that isn't an ed25519 public key (one line, starting ssh-ed25519)"
-    [[ "$from" =~ ^[0-9a-fA-F.:/,*]{3,100}$ ]] || fail "give the Mac's address (its tailnet address: tailscale ip -4 on the Mac)"
+    valid_from "$from" || fail "give the Mac's address: one IPv4 or IPv6 address, no *, list or range (its tailnet address: tailscale ip -4 on the Mac)"
     if ! id "$USER_NAME" >/dev/null 2>&1; then
       useradd --create-home --shell /bin/bash --comment "Claude Code (SCRUM-92)" "$USER_NAME"
       ok "created user $USER_NAME"
