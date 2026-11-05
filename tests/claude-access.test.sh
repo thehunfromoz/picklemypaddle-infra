@@ -17,6 +17,10 @@
 #   9. the SSH forced command splits words without a shell: ; $( ) and | don't run anything
 #  10. every call is logged with the caller
 #
+#  14-17. (follow-up) the address "on" offers: safe when SSH_CLIENT is unset, falls back to
+#      SSH_CONNECTION and who -m, suggests nothing it can't read as an address; install.sh
+#      --claude-access passes <key-file> <address> through
+#
 # Part 2 (CI only, needs passwordless sudo): claude-access.sh on/off on the real system.
 #  11. on: user with a locked password, in no privileged group; key forced to the command,
 #      from one address; sudo rule validates, is 0440 and allows pmp-staging only
@@ -162,6 +166,38 @@ pass "9. the SSH forced command splits words without a shell"
 grep -q '^user=pmp-claude run: status' "$LOG" || die "10. each call should be logged with its caller"
 pass "10. every call is logged with the caller"
 
+# ---- address the Mac connects from (SCRUM-92 follow-up, 5 Nov 2026) ------------------------------
+# `claude-access.sh default-from` prints the address "on" offers when asked; it needs no root.
+# who is a stand-in, so the tests don't depend on the machine's own utmp.
+df() { # df <who output> [env assignment...]: the suggested address, with SSH_CLIENT/SSH_CONNECTION cleared first
+  local w="$1"; shift
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$WHO_OUT"\n' >"$BIN/who"; chmod +x "$BIN/who"
+  rc=0; env -u SSH_CLIENT -u SSH_CONNECTION "$@" WHO_OUT="$w" PATH="$BIN:$PATH" "$ROOT/staging/claude-access.sh" default-from >"$WORK/out" 2>&1 || rc=$?
+}
+df "" ; [[ $rc -eq 0 ]] && ! grep -q 'unbound' "$WORK/out" || die "14. with SSH_CLIENT unset (as under sudo) default-from must not die"
+[[ ! -s "$WORK/out" ]] || die "14. with no address anywhere, nothing should be suggested (got: $(cat "$WORK/out"))"
+df "" SSH_CLIENT="198.51.100.4 50000 22"; [[ "$(cat "$WORK/out")" == "198.51.100.4" ]] || die "14. SSH_CLIENT should still be used when set"
+pass "14. SSH_CLIENT unset is safe; set, it is used"
+
+df "attila pts/0 2026-11-05 10:00 (203.0.113.7)"; [[ "$(cat "$WORK/out")" == "203.0.113.7" ]] || die "15. should fall back to the session's address from who -m"
+df "attila pts/0 2026-11-05 10:00 (fd7a:115c:a1e0::1)"; [[ "$(cat "$WORK/out")" == "fd7a:115c:a1e0::1" ]] || die "15. IPv6 from who -m"
+df "" SSH_CONNECTION="203.0.113.8 50000 192.0.2.1 22"; [[ "$(cat "$WORK/out")" == "203.0.113.8" ]] || die "15. SSH_CONNECTION is the next fallback"
+pass "15. falls back to SSH_CONNECTION, then the session address from who -m"
+
+df "attila pts/0 2026-11-05 10:00 (home-mac.local)"; [[ ! -s "$WORK/out" ]] || die "16. a host name from who -m is not an address: suggest nothing"
+df "attila :0 2026-11-05 10:00 (:0)"; [[ ! -s "$WORK/out" ]] || die "16. a display like :0 is not an address: suggest nothing"
+pass "16. no usable address: nothing is suggested (so 'on' has to ask)"
+
+mkdir "$WORK/inst"; cp "$ROOT/staging/install.sh" "$WORK/inst/install.sh"
+printf '#!/usr/bin/env bash\necho "claude-access.sh $*" >>"%s"\n' "$CALLS" >"$WORK/inst/claude-access.sh"; chmod +x "$WORK/inst/"*
+: >"$CALLS"; "$WORK/inst/install.sh" --claude-access /tmp/k.pub 203.0.113.9 >/dev/null 2>&1 || true
+called "claude-access.sh on /tmp/k.pub 203.0.113.9" || die "17. install.sh --claude-access <key-file> <address> should pass both on"
+: >"$CALLS"; "$WORK/inst/install.sh" --claude-access >/dev/null 2>&1 || true
+called "claude-access.sh on" && ! grep -q 'on .' "$CALLS" || die "17. install.sh --claude-access alone should still ask (on, no arguments)"
+: >"$CALLS"; rc=0; "$WORK/inst/install.sh" --claude-access /tmp/k.pub >"$WORK/out" 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && ! called "claude-access.sh" || die "17. a key file without an address should be a usage error"
+pass "17. install.sh --claude-access passes <key-file> <address> through"
+
 # ---- part 2 ----------------------------------------------------------------------------------
 if [[ -z "${GITHUB_ACTIONS:-}" ]] || ! sudo -n true 2>/dev/null; then
   echo "Part 2 skipped (runs in CI, where sudo needs no password)"
@@ -198,6 +234,14 @@ pass "12. sudo allows pmp-staging only; refusals reach the journal"
 echo "# changed" | sudo tee -a /usr/local/sbin/pmp-staging >/dev/null
 sudo "$ROOT/staging/claude-access.sh" refresh >"$WORK/out" 2>&1 || die "13. refresh failed"
 cmp -s "$ROOT/staging/pmp-staging" /usr/local/sbin/pmp-staging || die "13. refresh should put the current pmp-staging back"
+# interactive "on", as an admin runs it under sudo: no SSH_CLIENT, and the address must be asked for
+printf '%s\n\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u SSH_CONNECTION "$ROOT/staging/claude-access.sh" on >"$WORK/out" 2>&1 &&
+  die "18. 'on' with no address found and none typed must refuse"
+grep -q 'unbound' "$WORK/out" && die "18. 'on' died on an unbound variable"
+printf '%s\n198.51.100.20\n' "$(<"$WORK/key.pub")" | sudo env -u SSH_CLIENT -u SSH_CONNECTION "$ROOT/staging/claude-access.sh" on >"$WORK/out" 2>&1 ||
+  die "18. 'on' should accept a typed address when SSH_CLIENT is unset"
+sudo grep -q 'from="198.51.100.20"' "$(getent passwd "$U" | cut -d: -f6)/.ssh/authorized_keys" || die "18. the typed address should be in the key line"
+pass "18. interactive on under sudo: asks for the address, refuses an empty answer"
 sudo "$ROOT/staging/claude-access.sh" off >"$WORK/out" 2>&1 || die "13. off failed"
 id "$U" >/dev/null 2>&1 && die "13. off should remove the user"
 for f in /etc/sudoers.d/pmp-claude /usr/local/sbin/pmp-staging /usr/local/bin/pmp-staging-ssh "$home"; do

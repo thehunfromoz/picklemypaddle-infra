@@ -8,7 +8,8 @@ file short and current; update it in the same PR as any change to how we work.
 
 **Where Claude works (SCRUM-92, from 4 Nov 2026):** mainly **Claude Code on Attila's Mac Studio**, in
 `~/Projects/picklemypaddle` ([runbooks/claude-code-mac.md](../runbooks/claude-code-mac.md)). There it
-has Docker, reaches home-server through `ssh pmp-staging …` only, and merges approved work. Cloud
+has Docker, reaches home-server through `ssh pmp-staging …` only (over the tailnet, so only while
+Tailscale is up on the Mac), and merges approved work. Cloud
 sessions (claude.ai/code) still work for Jira, research and docs, with the limits listed under
 "Cloud sessions" below.
 
@@ -261,8 +262,9 @@ Anything else on home-server (secrets, Tailscale, other apps) is still Attila's.
 - **Ubuntu 26.04's `sudo` is sudo-rs:** it rejects many sudoers `Defaults` options (`requiretty`,
   `log_allowed`, …), so keep sudoers files minimal and check them with `visudo -cf` (found by infra CI,
   4 Nov 2026).
-- **Claude's access (SCRUM-92):** user `pmp-claude`, key forced to `pmp-staging`, one sudo rule;
-  `install.sh --claude-access` / `--claude-access-off`; every call in `journalctl -t pmp-staging`.
+- **Claude's access (SCRUM-92):** user `pmp-claude`, key forced to `pmp-staging` and locked to the Mac's
+  tailnet address, one sudo rule; `install.sh --claude-access [<key-file> <address>]` /
+  `--claude-access-off`; every call in `journalctl -t pmp-staging`.
 - Secrets live only on home-server (root, 600): `/etc/picklemypaddle/github-status.token`
   and `/etc/picklemypaddle/integrations.env` (test-mode keys only).
 - **NSW public holidays (SCRUM-73)** live in integrations `src/orders/holidays.ts` (nsw.gov.au,

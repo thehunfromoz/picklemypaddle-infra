@@ -3,10 +3,12 @@
 #
 #   sudo ./staging/install.sh --claude-access      on: asks for the Mac's public key (and the
 #                                                  address it connects from), then sets it all up
+#   sudo ./staging/install.sh --claude-access <key-file> <address>   the same, without the questions
 #   sudo ./staging/install.sh --claude-access-off  off: removes the user, key, sudo rule and commands
 #   (plain install.sh runs `refresh`: keeps the two commands and the sudo rule current, if on)
 #
 # Direct use (tests, scripts): claude-access.sh on <public-key-file> <from-pattern> | off | refresh
+#   claude-access.sh default-from   prints the address "on" would suggest (no root needed)
 #
 # What "on" means: a user `pmp-claude` with no password and no docker group, whose only SSH key
 # is forced to /usr/local/bin/pmp-staging-ssh, from one address; and one sudo rule letting it run
@@ -22,6 +24,20 @@ SUDOERS="/etc/sudoers.d/pmp-claude"
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
+
+# The address the Mac connects from, for "on" to suggest. sudo strips SSH_CLIENT (and, under
+# `set -u`, using it unguarded killed the script), so fall back to SSH_CONNECTION and then to the
+# session's own utmp entry. Prints nothing unless it looks like an IP address: a host name or a
+# display such as :0 is no use in an authorized_keys from= pattern we'd want to trust.
+default_from() {
+  local a="${SSH_CLIENT:-}"
+  a="${a%% *}"
+  if [[ -z "$a" ]]; then a="${SSH_CONNECTION:-}"; a="${a%% *}"; fi
+  if [[ -z "$a" ]]; then a="$(who -m 2>/dev/null | sed -n 's/.*(\([^()]*\))[[:space:]]*$/\1/p' | head -n1)"; fi
+  if [[ "$a" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$a" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:.]+$ && "$a" != :* ]]; then printf '%s\n' "$a"; fi
+}
+if [[ "${1:-}" == default-from ]]; then default_from; exit 0; fi
+
 [[ $EUID -eq 0 ]] || fail "run with sudo"
 
 install_commands() {
@@ -46,15 +62,15 @@ case "${1:-}" in
     if [[ -z "$key_file" ]]; then
       echo "Claude Code's SSH key (on the Mac: cat ~/.ssh/pmp-claude.pub)"
       read -rp "  Paste the public key: " key
-      default_from="${SSH_CLIENT%% *}"
-      read -rp "  Address it connects from [${default_from:-required}]: " from
-      from="${from:-$default_from}"
+      suggested="$(default_from)"
+      read -rp "  Address it connects from (the Mac's tailnet address) [${suggested:-required}]: " from
+      from="${from:-$suggested}"
     else
       key="$(<"$key_file")"
     fi
     [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]{60,}(\ [A-Za-z0-9._@-]{1,64})?$ ]] ||
       fail "that isn't an ed25519 public key (one line, starting ssh-ed25519)"
-    [[ "$from" =~ ^[0-9a-fA-F.:/,*]{3,100}$ ]] || fail "give the Mac's address (e.g. its LAN or tailnet IP)"
+    [[ "$from" =~ ^[0-9a-fA-F.:/,*]{3,100}$ ]] || fail "give the Mac's address (its tailnet address: tailscale ip -4 on the Mac)"
     if ! id "$USER_NAME" >/dev/null 2>&1; then
       useradd --create-home --shell /bin/bash --comment "Claude Code (SCRUM-92)" "$USER_NAME"
       ok "created user $USER_NAME"
@@ -85,5 +101,5 @@ case "${1:-}" in
   refresh)
     if id "$USER_NAME" >/dev/null 2>&1; then install_commands; ok "Claude access: commands and sudo rule up to date"; fi
     ;;
-  *) echo "usage: $0 on <key-file> <from> | off | refresh" >&2; exit 2 ;;
+  *) echo "usage: $0 on [<key-file> <from>] | off | refresh | default-from" >&2; exit 2 ;;
 esac
