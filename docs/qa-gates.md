@@ -33,7 +33,7 @@ Where they run:
 | Retention and erasure | integrations `retention`, `erasure` | n/a | no | the staging walk-through is by hand (`backdate-order`) |
 | Reviews and testimonials | integrations `reviews`, `review-reminder` | n/a | no | |
 | NSW holidays, business days | integrations `holidays` (12-month coverage) | n/a | n/a | |
-| **Clubs and batches (SCRUM-85, SCRUM-10)** | **none yet** | **none yet** | **none yet** | SCRUM-85 is not built; its tests are listed in the story |
+| Clubs and batches, club invoices and payments, clubs in HubSpot (SCRUM-85) | integrations `clubs` (all-or-nothing return and invoice, GST on top), `club-payments` (PayID and cash, part payments, card through fake Stripe, late and wrong payments flagged and alerted, overdue), `club-crm` (company, contact and a deal per batch in fake HubSpot; contact change; recovery; order syncs unaffected by missing club stages); site `document` | site `club-invoice` (invoice, part-paid, Pay by card, 409, `/club/paid` incl. a payment needing review) | no (admin and tailnet only) | not built: what a refund of a club card payment does to the invoice and batch (decision pending); no ledger yet (SCRUM-86). Clubs' later stories (SCRUM-93 to 97) have no tests yet |
 | Agents (parked) | agents `agents` | n/a | n/a | |
 
 ## Non-functional areas
