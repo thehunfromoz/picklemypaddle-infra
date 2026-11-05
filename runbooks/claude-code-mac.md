@@ -207,7 +207,7 @@ record what ran, not which prompts you saw, so "would have asked" means "not cov
 
 | Group | Allowed without asking | Why |
 | --- | --- | --- |
-| Read-only shell | `ls`, `cat`, `head`, `tail`, `grep`, `sed -n`, `cut`, `wc`, `sort`, `uniq`, `diff`, `date`, `which`, `ps`, `lsof`, `sleep`, `mkdir` | They only look (`sed -n` only prints). |
+| Read-only shell | `ls`, `cat`, `head`, `tail`, `grep`, `cut`, `wc`, `sort`, `uniq`, `diff`, `date`, `which`, `ps`, `lsof`, `sleep`, `mkdir` | They only look. (`sed` isn't here: its `w` command writes any file. Claude reads line ranges with its Read tool.) |
 | git, read-only | `git status/log/diff/show/fetch/branch/rev-parse` also in the form `git -C <dir> …`; `git grep`, `ls-tree`, `reflog`, `remote -v`, `worktree list`, `stash list`, `config --get` | Looking at other clones and branches. |
 | git, local-only writes | `git merge`, `git stash push/pop`, `git worktree add` | Change only the local clone; pushing stays limited to `scrum-*` branches. |
 | git push | `git push -q [-u] origin scrum-*` (the `-q` forms) | Same branches as before. |
@@ -216,11 +216,15 @@ record what ran, not which prompts you saw, so "would have asked" means "not cov
 | Other | `python3 -m json.tool`, `bash ci/container-test.sh`, `npm view`, `curl` to `localhost` | Named in the docs or read-only. |
 | Atlassian (both servers) | read tools; add or edit a comment; move a status; create an issue link | [working-with-claude.md](../docs/working-with-claude.md) gives Claude these (Jira statuses, blocked-by links, test reports). |
 
-**Added to the deny list:** `Bash(*/.ssh*)`. Allowing `cat` and `grep` would otherwise let the shell read
-`~/.ssh`, which `Read(~/.ssh/**)` doesn't cover.
+**Added to the deny list:** `Bash(*/.ssh*)`, `Bash(*/.env*)` and `Bash(* .env*)`: allowing `cat` and `grep`
+would otherwise let the shell read `~/.ssh` and `.env` files, which the `Read(...)` denies don't cover.
+`Bash(git -c *)`, `Bash(git -C * -c *)` and `Bash(git * --config-env*)`: a config override placed before the
+subcommand can run a command (`core.pager`, `core.fsmonitor`), and the `git -C *` allow rules would let it
+through. A `.env` mention inside a command (even in a heredoc) also trips the `.env` deny; the Edit and Read
+tools are unaffected.
 
 **Left out on purpose** (still asks, or stays denied):
-`python3 -` (and other heredoc-fed interpreters) and `awk`, `find`, `xargs`: they run arbitrary code or
+`python3 -` (and other heredoc-fed interpreters), `sed`, `awk`, `find`, `xargs`: they run arbitrary code or
 commands; Claude edits files with its Edit tool instead. `rm`, `cp`, `chmod`, `kill`: they destroy or
 overwrite. `git reset`, `git clean`, `git stash drop`: they discard work (`git reset --hard` was blocked
 by auto mode on 5 Nov 2026; adding it to the deny list is worth considering). A bare `git push` (it pushes
