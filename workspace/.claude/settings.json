@@ -52,7 +52,6 @@
       "Bash(head *)",
       "Bash(tail *)",
       "Bash(grep *)",
-      "Bash(sed -n *)",
       "Bash(cut *)",
       "Bash(wc *)",
       "Bash(sort *)",
@@ -157,7 +156,12 @@
       "Read(~/.ssh/**)",
       "Read(~/Library/**)",
       "Edit(~/.ssh/**)",
-      "Bash(*/.ssh*)"
+      "Bash(*/.ssh*)",
+      "Bash(git -c *)",
+      "Bash(git -C * -c *)",
+      "Bash(git * --config-env*)",
+      "Bash(*/.env*)",
+      "Bash(* .env*)"
     ]
   }
 }
