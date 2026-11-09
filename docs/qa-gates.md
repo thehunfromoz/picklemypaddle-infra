@@ -44,7 +44,7 @@ Where they run:
 | Accessibility | axe in site `site` and `discount-code` specs; Lighthouse accessibility 100 (`lighthouse-budget.json`) | CI | axe runs on a few pages only: extend to every page template |
 | Performance | Lighthouse budget (`check:lighthouse`, `tests/unit/lighthouse-budget`) | CI | no load test for integrations (low volume; revisit before club batches) |
 | Secrets | gitleaks (`secrets / Secret scan`); `check:secrets` on the built site; dummy keys built at runtime | CI | |
-| Container images | Trivy scan (HIGH and CRITICAL), container tests | CI (image job) | site `.trivyignore` expires 9 Nov 2026 |
+| Container images | Trivy scan (HIGH and CRITICAL), container tests | CI (image job) | site `.trivyignore` expires 16 Nov 2026 |
 | Old CPU on home-server (pre x86-64-v2) | integrations container test under QEMU `-cpu Penryn` | CI | the site image isn't run under Penryn (static Caddy, low risk) |
 | Staging and production stacks | compose and Caddyfile rules, loopback-only listeners, internal networks, orders off in production | infra CI `lint`, `site-image` | |
 | Deploy, rollback, recovery | updater tests; production `update.sh` tests | infra CI `updater` | |

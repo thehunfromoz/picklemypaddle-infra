@@ -211,7 +211,7 @@ Anything else on home-server (secrets, Tailscale, other apps) is still Attila's.
   failures never failed a job). Failures surface as `::error` annotations. In infra CI the
   site smoke suite (`EXPECT_STAGING=1`, through the gateway) annotates its failing tests,
   which is the quickest way to see why home-server rolled back.
-- **Site `.trivyignore` expires 9 Nov 2026** (SCRUM-38, SCRUM-60; extended from 26 Oct to 2 Nov by site PR #40, then to 9 Nov). It accepts, for a limited
+- **Site `.trivyignore` expires 16 Nov 2026** (SCRUM-38, SCRUM-60; extended from 26 Oct to 2 Nov by site PR #40, then to 9 and 16 Nov). It accepts, for a limited
   time, the HIGH findings in the `caddy:2-alpine` base image: the Go 1.26.9 / x/net 0.60.0 set
   from 11 Oct and `CVE-2026-111943` (fixed in Go 1.26.10 / 1.27.3, 20 Oct). Remove it once a
   Caddy release built with Go 1.26.10 or later is out, or re-review the expiry with Attila.
