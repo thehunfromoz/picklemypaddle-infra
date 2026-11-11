@@ -23,3 +23,9 @@ The essentials, in case of doubt:
 - Every acceptance criterion gets a regression test, seen failing once; update `qa-gates.md`.
 - Unknown facts are written `[To confirm: …]`, never guessed.
 - Each repo has its own `CLAUDE.md` with its commands.
+- Never edit an agreement version that has been sent (even to a staging test club): add a new one.
+- Never put a drive-time starting point, home suburb or address anywhere (code, copy, comments,
+  commits); describe the area only.
+- Practical: macOS has no `timeout`; BSD `sed -i` needs a suffix (use python for edits); don't run
+  staging commands in parallel; `ssh pmp-staging status` still lists old known-bad builds after
+  earlier failures (read the live commit, not that list).

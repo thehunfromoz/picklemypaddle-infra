@@ -387,8 +387,11 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   dated table each July), and Attila can override it at Accept with a reason. **For launch (decided
   2 Nov 2026): actual weight, not cubic; packaging absorbed for a single paddle and charged at cost
   from two paddles** (1 paddle A$11.70, 2 A$18.00, 3–9 A$23.75, 10 A$27.95). Revisit after launch.
-- Turnaround: back in the post within 10 business days of arrival. Order reply within
-  1 business day.
+- Turnaround: usually back in the post within 10 business days of arrival (the default, one
+  setting: integrations `TURNAROUND_BUSINESS_DAYS`; the site keeps a copy that a test compares).
+  Attila sets another number, 1 to 65, when he accepts an order or a club request, and it can't
+  change once queued (SCRUM-105). Public copy says "usually"; the email that accepts says the
+  number. Order reply within 1 business day.
 - Re-gritted paddles are not legal for sanctioned tournaments; say so near pricing.
 - Brand C3b: court blue `#4565A6`, court green `#78A472` (green text `#3F6B3E`), ink
   `#1E2E52`, background `#FBFAF6`; Sora + Work Sans (self-hosted); strict CSP, no inline
@@ -446,6 +449,32 @@ The shared order rules live in integrations `src/orders/rules.ts`; the site's
   Gmail, Resend (30-day log) and backups: `runbooks/deletion.md`. Test-only `backdate-order.js`
   shows a rule on staging.
 - **Clubs** (batch tracking) are in SCRUM-10, not SCRUM-8.
+
+### Club programme (SCRUM-10; decided 5 to 11 Nov 2026)
+
+- **Pickup or post:** a club's venue postcode sets its default (inside the launch area: local
+  pickup; outside: post). Attila's per-club **Method override IS the pickup flag**: no other flag.
+  The area is the smaller launch list, owned by the site repo; copy and code name suburbs only,
+  never a drive-time starting point, home suburb or address.
+- **A sent agreement version is never edited** (a hash is stored at first send; a test pins
+  v0.3's). Changes go in a new version. On 11 Nov 2026 v0.3's text was edited after it had gone to
+  a staging test club and was restored: don't repeat it. Current: v0.5, an unapproved draft;
+  production sends none until Attila approves a version with no `[To confirm]` items.
+- **Artwork (SCRUM-104):** the black grit hides logos and artwork. Third required order tick-box
+  (`artwork_ack_at`), FAQ, Terms, Pricing note, Clubs page "What to tell your members", agreement
+  clause 2.5.
+- **Returning a batch emails the club** (`club_returned`: date, tracking number if posted).
+- **Turnaround at Accept (SCRUM-105):** orders and club requests use the same logic, 1 to 65
+  business days, or reject with a reason; no change once in the queue; the agreement (clause 2.2)
+  states the usual 10 and Attila's right to change it per batch; the club is always told the number.
+- **Club link and requests (SCRUM-95, SCRUM-96; approved 11 Nov, not yet built):** one private link per
+  club (`/club#<token>`, traceable who and when), no login area: batches, invoices, upcoming
+  pickups, replace-token, "email me my link". Request form: pickup (count, days and times) or
+  "I've posted a box" (count, tracking, date, creates a batch). Pickup is blocked outside the
+  area with a note to email us if just outside, and only for clubs whose Method is local. No
+  recurring pickups for now. Attila accepts or rejects a request in admin using SCRUM-105's field;
+  the club is emailed either way and the page shows the expected return date. His alert carries a
+  reference and admin link only.
 
 ### Discount codes (SCRUM-63, decided 30 Oct and 2 Nov 2026)
 
